@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,8 +98,10 @@ val LocalPalette = compositionLocalOf { LightPalette }
 val LocalLang = compositionLocalOf { "en" }
 val LocalMotion = compositionLocalOf { true }
 
-@Composable
-fun tr(en: String, ar: String): String = if (LocalLang.current == "ar") ar else en
+/** Current UI language as Compose state: readable from composables (recomposes) and from plain callbacks. */
+object Lang { var code by androidx.compose.runtime.mutableStateOf("en") }
+
+fun tr(en: String, ar: String): String = if (Lang.code == "ar") ar else en
 
 @Composable
 fun AppTheme(dark: Boolean, lang: String, motion: Boolean, content: @Composable () -> Unit) {
