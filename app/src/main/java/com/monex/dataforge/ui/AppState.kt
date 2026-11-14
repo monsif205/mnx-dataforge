@@ -89,6 +89,7 @@ class AppState(val ctx: Context) {
     }
 
     fun setTheme(m: String) { themeMode = m; prefs.edit().putString("theme", m).apply() }
+    @JvmName("applyLang")
     fun setLang(l: String) { lang = l; Lang.code = l; prefs.edit().putString("lang", l).apply() }
     fun setMotionOff(b: Boolean) { reduceMotion = b; prefs.edit().putBoolean("motion_off", b).apply() }
 
