@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 sealed class Screen {
     data class DatasetS(val id: String) : Screen()
     data class EditorS(val datasetId: String, val recordId: String?) : Screen()
+    data class WriteS(val datasetId: String) : Screen()
 }
 
 class KindInfo(val id: String, val en: String, val ar: String, val required: List<String>, val template: String)

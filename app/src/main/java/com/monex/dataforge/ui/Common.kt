@@ -66,7 +66,7 @@ fun Page(title: String, onBack: (() -> Unit)? = null, actions: @Composable RowSc
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (onBack != null) IconBtn(Ic.BACK, onBack)
-            T(title, 22.sp, FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
+            T(title, if (onBack == null) 30.sp else 20.sp, FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
             actions()
         }
         content()

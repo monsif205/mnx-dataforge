@@ -120,6 +120,73 @@ pub fn script_of(s: &str) -> &'static str {
     }
 }
 
+fn run_tokens(kind: u8, len: usize) -> f64 {
+    match kind {
+        1 => if len <= 7 { 1.0 } else { (len as f64 / 4.0).ceil() },
+        2 => (len as f64 / 3.0).ceil(),
+        3 => (len as f64 * 0.4).ceil().max(1.0),
+        _ => (len as f64 / 3.0).ceil().max(1.0),
+    }
+}
+
+/// Rough token estimate (NOT a real tokenizer; typically within +/-25% for chat models).
+/// Words, digits, Arabic runs, CJK characters, punctuation and emoji are counted separately.
+/// Chat-template overhead per message is not included.
+pub fn estimate_tokens(s: &str) -> usize {
+    let mut total = 0f64;
+    let mut kind = 0u8;
+    let mut len = 0usize;
+    for c in s.chars() {
+        let u = c as u32;
+        if (0x064B..=0x065F).contains(&u) || u == 0x0670 || u == 0x0640 || u == 0x200D || u == 0xFE0F || (0x200B..=0x200F).contains(&u) {
+            continue;
+        }
+        let k: u8 = if c.is_whitespace() {
+            0
+        } else if c.is_ascii_alphabetic() {
+            1
+        } else if c.is_ascii_digit() {
+            2
+        } else if (0x0600..=0x06FF).contains(&u) || (0x0750..=0x077F).contains(&u) || (0xFB50..=0xFDFF).contains(&u) || (0xFE70..=0xFEFF).contains(&u) {
+            if c.is_alphabetic() { 3 } else { 9 }
+        } else if (0x3040..=0x30FF).contains(&u) || (0x3400..=0x4DBF).contains(&u) || (0x4E00..=0x9FFF).contains(&u) || (0xAC00..=0xD7AF).contains(&u) {
+            8
+        } else if u >= 0x1F000 {
+            7
+        } else if c.is_alphabetic() {
+            4
+        } else {
+            9
+        };
+        if k == kind && (1..=4).contains(&k) {
+            len += 1;
+            continue;
+        }
+        if kind != 0 && len > 0 {
+            total += run_tokens(kind, len);
+        }
+        kind = 0;
+        len = 0;
+        match k {
+            0 => {
+                if c == '\n' {
+                    total += 1.0;
+                }
+            }
+            1..=4 => {
+                kind = k;
+                len = 1;
+            }
+            7 => total += 2.0,
+            _ => total += 1.0,
+        }
+    }
+    if kind != 0 && len > 0 {
+        total += run_tokens(kind, len);
+    }
+    total.ceil() as usize
+}
+
 fn collect_strings(v: &Value, out: &mut Vec<String>) {
     match v {
         Value::Str(s) => out.push(s.clone()),

@@ -32,3 +32,19 @@ DECISIONS
     crash recovery (WAL). A Rust store would only add APK size.
   - Engine has zero crates so the host tests run anywhere; only the JNI bridge needs the jni crate.
   - Free-form text search uses FTS over normalized text (Arabic folding done by the Rust engine).
+
+FIX 1 (after first CI build, 2026-11-14)
+  Error: "@Composable invocations can only happen from the context of a @Composable function" in Screens.kt
+  (and the same pattern elsewhere). Cause: tr() was @Composable but was called inside onClick / st.work lambdas.
+  Fix: tr() is now a plain function reading Lang.code (Compose state object in ui/Theme.kt). AppState sets
+  Lang.code at start and in setLang(). Composables still recompose on language change because Lang.code is state.
+
+FIX 2 (CI build 2)
+  Error: Unresolved reference 'DigestOutputStream' in ops/Ops.kt. Cause: wrong package; the class is
+  java.security.DigestOutputStream, not java.io. Fix: import corrected.
+
+FIX 3 (CI build 3)
+  Error: Platform declaration clash setLang(String) in ui/AppState.kt. Cause: the property "var lang" generates
+  the JVM setter setLang(String), identical to the member function setLang(String). Fix: @JvmName("applyLang") on
+  the function; Kotlin callers keep using st.setLang(...). Note: this error comes from the backend phase, which
+  means Kotlin type checking of the whole module had already passed.

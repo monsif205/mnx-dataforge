@@ -438,6 +438,40 @@ class Repo(private val helper: Db) {
         return out
     }
 
+    /** Result of a read-only SQL query for the SQL console. */
+    class SqlResult(val columns: List<String>, val rows: List<List<String>>, val truncated: Boolean)
+
+    /**
+     * Runs one SELECT/WITH statement. `:ds` is replaced by the dataset id literal. Anything else is rejected
+     * before it reaches SQLite, and rawQuery only ever runs a single statement.
+     */
+    fun sql(ds: String, query: String, maxRows: Int = 200): SqlResult {
+        val q = query.trim().trimEnd(';').trim()
+        require(q.isNotEmpty()) { "Empty query" }
+        require(!q.contains(';')) { "Only one statement is allowed" }
+        val head = q.lowercase().takeWhile { !it.isWhitespace() }
+        require(head == "select" || head == "with") { "Only SELECT queries are allowed" }
+        require(ds.all { it.isLetterOrDigit() || it == '-' || it == '_' }) { "bad dataset id" }
+        val bound = q.replace(":ds", "'$ds'")
+        w.rawQuery(bound, null).use { c ->
+            val cols = c.columnNames.toList()
+            val rows = ArrayList<List<String>>()
+            var truncated = false
+            while (c.moveToNext()) {
+                if (rows.size >= maxRows) { truncated = true; break }
+                rows.add(cols.indices.map { i -> if (c.isNull(i)) "NULL" else try { c.getString(i) } catch (e: Exception) { "<blob>" } })
+            }
+            return SqlResult(cols, rows, truncated)
+        }
+    }
+
+    /** Total estimated tokens of a dataset (reads texts through the Rust engine, bounded). */
+    fun tokenTotals(ds: String, maxRecords: Int = 20000): JSONObject {
+        val t = texts(ds, maxRecords, 20000)
+        val arr = JSONArray(); t.forEach { arr.put(it.second) }
+        return NativeCore.run("tokens", JSONObject().put("texts", arr))
+    }
+
     fun provenanceSummary(ds: String): JSONObject {
         val unknownLicense = w.rawQuery(
             "SELECT COUNT(*) FROM records WHERE dataset_id=? AND origin IN ('imported','edited_import','transformed') AND (license IS NULL OR license='' OR LOWER(license)='unknown')",

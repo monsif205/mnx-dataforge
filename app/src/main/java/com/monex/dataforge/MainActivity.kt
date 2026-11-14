@@ -36,7 +36,9 @@ import com.monex.dataforge.ui.BusyOverlay
 import com.monex.dataforge.ui.DataScreen
 import com.monex.dataforge.ui.DatasetScreen
 import com.monex.dataforge.ui.Dock
-import com.monex.dataforge.ui.Glass
+import com.monex.dataforge.ui.BackdropHost
+import com.monex.dataforge.ui.LiquidGlass
+import com.monex.dataforge.ui.WriteScreen
 import com.monex.dataforge.ui.HomeScreen
 import com.monex.dataforge.ui.Ic
 import com.monex.dataforge.ui.RecordEditor
@@ -76,48 +78,53 @@ fun App(st: AppState) {
         c.isAppearanceLightNavigationBars = !dark
     }
     AppTheme(dark, st.lang, !st.reduceMotion) {
+        val bg = com.monex.dataforge.ui.LocalPalette.current.bgTop
         AppBackground {
             BackHandler(enabled = st.stack.isNotEmpty()) { st.pop() }
-            val target: Any = st.stack.lastOrNull() ?: st.tab
-            AnimatedContent(
-                targetState = target,
-                transitionSpec = {
-                    if (st.reduceMotion) EnterTransition.None togetherWith ExitTransition.None
-                    else fadeIn(tween(200)) togetherWith fadeOut(tween(120))
-                },
-                modifier = Modifier.fillMaxSize(),
-                label = "screen"
-            ) { t ->
-                when (t) {
-                    is Screen.DatasetS -> DatasetScreen(st, t.id)
-                    is Screen.EditorS -> RecordEditor(st, t.datasetId, t.recordId)
-                    0 -> HomeScreen(st)
-                    1 -> DataScreen(st)
-                    2 -> BackupScreen(st)
-                    else -> SettingsScreen(st)
-                }
-            }
-            if (st.stack.isEmpty()) {
-                Box(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 10.dp)) {
-                    Dock(
-                        listOf(
-                            Triple(Ic.HOME, tr("Home", "الرئيسية"), st.tab == 0),
-                            Triple(Ic.DATA, tr("Data", "البيانات"), st.tab == 1),
-                            Triple(Ic.BACKUP, tr("Backup", "النسخ"), st.tab == 2),
-                            Triple(Ic.GEAR, tr("Settings", "الإعدادات"), st.tab == 3)
-                        ),
-                        { st.tab = it }
-                    )
-                }
-            }
-            st.message?.let { m ->
-                LaunchedEffect(m) { delay(4000); if (st.message == m) st.message = null }
-                Box(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = if (st.stack.isEmpty()) 100.dp else 24.dp)) {
-                    Glass(Modifier.fillMaxWidth().pressable { st.message = null }, strength = 0.9f, radius = 18.dp) {
-                        Box(Modifier.padding(14.dp)) { T(m, 13.sp) }
+            BackdropHost(Modifier.fillMaxSize(), background = bg, content = {
+                val target: Any = st.stack.lastOrNull() ?: st.tab
+                AnimatedContent(
+                    targetState = target,
+                    transitionSpec = {
+                        if (st.reduceMotion) EnterTransition.None togetherWith ExitTransition.None
+                        else fadeIn(tween(200)) togetherWith fadeOut(tween(120))
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                    label = "screen"
+                ) { t ->
+                    when (t) {
+                        is Screen.DatasetS -> DatasetScreen(st, t.id)
+                        is Screen.EditorS -> RecordEditor(st, t.datasetId, t.recordId)
+                        is Screen.WriteS -> WriteScreen(st, t.datasetId)
+                        0 -> HomeScreen(st)
+                        1 -> DataScreen(st)
+                        2 -> BackupScreen(st)
+                        else -> SettingsScreen(st)
                     }
                 }
-            }
+            }, overlay = {
+                if (st.stack.isEmpty()) {
+                    Box(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 10.dp)) {
+                        Dock(
+                            listOf(
+                                Triple(Ic.HOME, tr("Home", "الرئيسية"), st.tab == 0),
+                                Triple(Ic.DATA, tr("Data", "البيانات"), st.tab == 1),
+                                Triple(Ic.BACKUP, tr("Backup", "النسخ"), st.tab == 2),
+                                Triple(Ic.GEAR, tr("Settings", "الإعدادات"), st.tab == 3)
+                            ),
+                            { st.tab = it }
+                        )
+                    }
+                }
+                st.message?.let { m ->
+                    LaunchedEffect(m) { delay(4000); if (st.message == m) st.message = null }
+                    Box(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = if (st.stack.isEmpty()) 100.dp else 24.dp)) {
+                        LiquidGlass(Modifier.fillMaxWidth().pressable { st.message = null }, radius = 20.dp) {
+                            Box(Modifier.padding(14.dp)) { T(m, 14.sp) }
+                        }
+                    }
+                }
+            })
             st.busy?.let { BusyOverlay(it, st.busyDetail) { st.cancelFlag.set(true) } }
         }
     }

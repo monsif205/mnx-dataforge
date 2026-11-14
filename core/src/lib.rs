@@ -7,6 +7,7 @@ pub mod dedup;
 pub mod export;
 pub mod json;
 pub mod leak;
+pub mod script;
 pub mod split;
 pub mod stats;
 pub mod text;

@@ -51,7 +51,7 @@ import org.json.JSONObject
 
 private val TABS = listOf(
     "Records" to "السجلات", "Quality" to "الجودة", "Splits" to "التقسيم", "Versions" to "الإصدارات",
-    "Import/Export" to "استيراد/تصدير", "Batch" to "دفعات", "Info" to "معلومات"
+    "Import/Export" to "استيراد/تصدير", "Batch" to "دفعات", "Info" to "معلومات", "Find" to "بحث", "SQL" to "SQL"
 )
 
 fun previewOf(data: String): String {
@@ -99,7 +99,9 @@ fun DatasetScreen(st: AppState, id: String) {
                 3 -> VersionsTab(st, d)
                 4 -> TransferTab(st, d)
                 5 -> BatchTab(st, d)
-                else -> InfoTab(st, d)
+                6 -> InfoTab(st, d)
+                7 -> FindTab(st, d)
+                else -> SqlTab(st, d)
             }
         }
     }
@@ -126,6 +128,7 @@ fun RecordsTab(st: AppState, ds: Dataset) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Field(query, { query = it }, Modifier.weight(1f), hint = tr("Search (Arabic-aware)", "بحث (يدعم العربية)"), singleLine = true)
+            GButton("", { st.push(Screen.WriteS(ds.id)) }, icon = Ic.WRITE, enabled = !ds.locked)
             GButton("", { st.push(Screen.EditorS(ds.id, null)) }, icon = Ic.PLUS, accent = true, enabled = !ds.locked)
         }
         ChipRow {

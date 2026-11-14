@@ -1,0 +1,37 @@
+PHASE 3 - AMOLED iOS UI, real liquid glass, Quick Write, Find, SQL, tokens
+===========================================================================
+
+WHAT CHANGED AND WHY
+
+core/src/script.rs (new)   Plain-text authoring <-> records. "User:/Assistant:" lines become a messages array;
+                           "---" separates records; unlabelled lines continue the previous message (multi-line).
+                           Fields mode (question:/answer:) for non-conversation datasets. Ops: script, to_script, tokens.
+core/src/text.rs           estimate_tokens(): heuristic (+/-25%), NOT a real tokenizer. Counts word/digit/Arabic runs,
+                           CJK per char, punctuation, emoji, newlines. Chat-template overhead excluded.
+core/src/stats.rs, api.rs  tokens_total/avg/max/p95 in stats; "tokens" in record_info; ops registered.
+                           Tests: 38 passing on host (5 new).
+
+app/build.gradle.kts, build.gradle.kts, workflow
+                           Toolchain raised for the glass library: Kotlin 2.3.10, AGP 8.13.0, compileSdk/targetSdk 36,
+                           Compose 1.10.3 pinned (no BOM), Gradle 8.14.3, platforms;android-36, build-tools;36.0.0.
+                           jvmTarget moved to kotlin { compilerOptions } (kotlinOptions is removed in Kotlin 2.3).
+
+ui/Glass.kt (new)          ONLY file that uses io.github.kyant0:backdrop 1.0.6. BackdropHost captures the screen content;
+                           LiquidGlass draws blur + vibrancy + refraction lens (Android 13+) over it. Used for the dock,
+                           round icon buttons and toasts. Data-heavy areas use solid iOS-style surfaces for readability.
+ui/Theme.kt                Pure AMOLED black dark palette (#000 background, #1C1C1E surfaces), iOS light palette, no gradient
+                           or blobs. iOS-style switch, pill chips, tinted buttons, uppercase section titles, 30sp large title,
+                           new icons (WRITE, CODE, DB, BOLT, LAYERS, PLAY).
+                           Field(mono=true) and T(mono=true) are always LTR: fixes the reversed JSON braces seen under Arabic.
+ui/WriteUi.kt (new)        WriteScreen: plain text editor; Enter inserts the next role automatically (User -> Assistant -> User);
+                           Enter on an empty label line does nothing; role chips, "new line" and "---" buttons, label colouring,
+                           live record/token counters, draft autosave, Build -> validate -> Add to dataset / .jsonl / copy JSON.
+                           FindTab: token estimate card + exact/near duplicate finder (Rust dedup), keep-first-delete-rest.
+                           SqlTab: read-only SELECT console, :ds binds the dataset, presets, LTR result table.
+data/Db.kt                 Repo.sql() (SELECT/WITH only, single statement) and Repo.tokenTotals().
+
+UNVERIFIED (could not be compiled here: no Android SDK/network in the sandbox)
+ - Backdrop library import paths (com.kyant.backdrop.*) and the effects{} lambda signature. If CI reports an error
+   in Glass.kt, send it: it is the only file to fix.
+ - Kotlin 2.3.10 / AGP 8.13.0 / Gradle 8.14.3 combination.
+ - Visual result of the glass on a real device.

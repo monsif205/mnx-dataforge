@@ -74,24 +74,25 @@ class Palette(
 
 val LightPalette = Palette(
     dark = false,
-    bgTop = Color(0xFFE9F0FF), bgBottom = Color(0xFFF6F1FF),
-    blob1 = Color(0x665B8CFF), blob2 = Color(0x55B07CFF), blob3 = Color(0x4458D6C8),
-    text = Color(0xFF0E1626), textDim = Color(0xFF55627A),
-    glassFill = Color.White, glassEdge = Color.White,
-    accent = Color(0xFF2F6BFF), accent2 = Color(0xFF6D8DFF),
-    danger = Color(0xFFD7263D), warn = Color(0xFFB7791F), ok = Color(0xFF1E8E5A),
-    field = Color(0x14000000)
+    bgTop = Color(0xFFF2F2F7), bgBottom = Color(0xFFF2F2F7),
+    blob1 = Color.Transparent, blob2 = Color.Transparent, blob3 = Color.Transparent,
+    text = Color(0xFF000000), textDim = Color(0xFF6C6C70),
+    glassFill = Color(0xFFFFFFFF), glassEdge = Color(0x1F000000),
+    accent = Color(0xFF007AFF), accent2 = Color(0xFF3395FF),
+    danger = Color(0xFFFF3B30), warn = Color(0xFFFF9500), ok = Color(0xFF34C759),
+    field = Color(0x12000000)
 )
 
+/** Pure AMOLED black: black background, iOS-style raised grey surfaces. */
 val DarkPalette = Palette(
     dark = true,
-    bgTop = Color(0xFF060A14), bgBottom = Color(0xFF111A33),
-    blob1 = Color(0x553D6BFF), blob2 = Color(0x449B5CFF), blob3 = Color(0x3320C9B5),
-    text = Color(0xFFEAF0FF), textDim = Color(0xFF9AA8C4),
-    glassFill = Color(0xFF1C2742), glassEdge = Color(0xFFBFD0FF),
-    accent = Color(0xFF6D9BFF), accent2 = Color(0xFF8FB0FF),
-    danger = Color(0xFFFF6B7D), warn = Color(0xFFF2B34E), ok = Color(0xFF4FD39A),
-    field = Color(0x22FFFFFF)
+    bgTop = Color(0xFF000000), bgBottom = Color(0xFF000000),
+    blob1 = Color.Transparent, blob2 = Color.Transparent, blob3 = Color.Transparent,
+    text = Color(0xFFFFFFFF), textDim = Color(0xFF8E8E93),
+    glassFill = Color(0xFF1C1C1E), glassEdge = Color(0x24FFFFFF),
+    accent = Color(0xFF0A84FF), accent2 = Color(0xFF409CFF),
+    danger = Color(0xFFFF453A), warn = Color(0xFFFF9F0A), ok = Color(0xFF30D158),
+    field = Color(0xFF2C2C2E)
 )
 
 val LocalPalette = compositionLocalOf { LightPalette }
@@ -123,49 +124,29 @@ fun <T> motion(): AnimationSpec<T> =
 @Composable
 fun AppBackground(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
     val p = LocalPalette.current
-    Box(
-        modifier
-            .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(p.bgTop, p.bgBottom)))
-            .drawBehind {
-                // Static soft light sources behind the glass (cheap: three radial gradients, no blur pass).
-                val w = size.width; val h = size.height
-                drawCircle(Brush.radialGradient(listOf(p.blob1, Color.Transparent), center = Offset(w * 0.15f, h * 0.12f), radius = w * 0.75f), radius = w * 0.75f, center = Offset(w * 0.15f, h * 0.12f))
-                drawCircle(Brush.radialGradient(listOf(p.blob2, Color.Transparent), center = Offset(w * 0.9f, h * 0.45f), radius = w * 0.7f), radius = w * 0.7f, center = Offset(w * 0.9f, h * 0.45f))
-                drawCircle(Brush.radialGradient(listOf(p.blob3, Color.Transparent), center = Offset(w * 0.25f, h * 0.92f), radius = w * 0.8f), radius = w * 0.8f, center = Offset(w * 0.25f, h * 0.92f))
-            },
-        content = content
-    )
+    Box(modifier.fillMaxSize().background(p.bgTop), content = content)
 }
 
 /**
- * Glass surface. `strength` 0..1: low = airy chrome (dock, headers), high = near-opaque panel for data-heavy
- * areas so text stays readable. The material is a translucent gradient fill, a lit top edge (specular
- * highlight), a gradient hairline border and a soft shadow. It is not true backdrop refraction.
+ * Grouped surface (iOS style): solid raised fill, no border glow. Real glass lives in Glass.kt and is used
+ * only for floating chrome (dock, toasts, round buttons) so data-heavy areas stay perfectly readable.
+ * `strength` is kept for call-site compatibility and ignored.
  */
 @Composable
+@Suppress("UNUSED_PARAMETER")
 fun Glass(
     modifier: Modifier = Modifier,
     strength: Float = 0.5f,
-    radius: Dp = 22.dp,
+    radius: Dp = 18.dp,
     content: @Composable BoxScope.() -> Unit
 ) {
     val p = LocalPalette.current
     val shape = RoundedCornerShape(radius)
-    val a = (0.22f + 0.62f * strength).coerceIn(0f, 0.95f)
-    val hi = if (p.dark) 0.10f else 0.40f
     Box(
         modifier
-            .shadow(if (p.dark) 8.dp else 12.dp, shape, ambientColor = Color(0x22000000), spotColor = Color(0x33000000))
             .clip(shape)
-            .background(Brush.verticalGradient(listOf(p.glassFill.copy(alpha = (a + 0.10f).coerceAtMost(0.97f)), p.glassFill.copy(alpha = a))))
-            .drawBehind {
-                drawRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = hi), Color.Transparent), endY = size.height * 0.4f))
-            }
-            .border(
-                BorderStroke(1.dp, Brush.linearGradient(listOf(p.glassEdge.copy(alpha = if (p.dark) 0.35f else 0.95f), p.glassEdge.copy(alpha = 0.08f), p.glassEdge.copy(alpha = if (p.dark) 0.2f else 0.55f)))),
-                shape
-            ),
+            .background(p.glassFill)
+            .then(if (p.dark) Modifier else Modifier.border(0.5.dp, p.glassEdge, shape)),
         content = content
     )
 }
@@ -194,7 +175,7 @@ fun T(
         maxLines = maxLines,
         overflow = if (maxLines == Int.MAX_VALUE) TextOverflow.Clip else TextOverflow.Ellipsis,
         style = TextStyle(
-            color = color ?: p.text, fontSize = size, fontWeight = weight, textDirection = TextDirection.Content,
+            color = color ?: p.text, fontSize = size, fontWeight = weight, textDirection = if (mono) TextDirection.Ltr else TextDirection.Content,
             fontFamily = if (mono) FontFamily.Monospace else FontFamily.Default, lineHeight = size * 1.35f
         )
     )
@@ -203,36 +184,29 @@ fun T(
 @Composable
 fun GButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, icon: Ic? = null, accent: Boolean = false, danger: Boolean = false, enabled: Boolean = true) {
     val p = LocalPalette.current
-    val shape = RoundedCornerShape(16.dp)
-    val fg = if (accent) Color.White else if (danger) p.danger else p.text
+    val shape = RoundedCornerShape(14.dp)
+    val fg = if (accent) Color.White else if (danger) p.danger else p.accent
     val base = modifier
         .pressable(enabled, onClick)
         .clip(shape)
-        .then(
-            if (accent) Modifier.background(Brush.verticalGradient(listOf(p.accent2, p.accent)))
-            else Modifier.background(p.glassFill.copy(alpha = if (p.dark) 0.55f else 0.65f))
-        )
-        .border(1.dp, p.glassEdge.copy(alpha = if (p.dark) 0.25f else 0.9f), shape)
-        .graphicsLayer { alpha = if (enabled) 1f else 0.45f }
-        .padding(horizontal = 14.dp, vertical = 10.dp)
+        .background(if (accent) p.accent else if (p.dark) Color(0xFF2C2C2E) else Color(0x12000000))
+        .graphicsLayer { alpha = if (enabled) 1f else 0.4f }
+        .padding(horizontal = 16.dp, vertical = 11.dp)
     Row(base, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
         if (icon != null) Icon(icon, fg, 18.dp)
-        if (text.isNotEmpty()) T(text, 14.sp, FontWeight.SemiBold, fg)
+        if (text.isNotEmpty()) T(text, 15.sp, FontWeight.SemiBold, fg)
     }
 }
 
 @Composable
 fun IconBtn(icon: Ic, onClick: () -> Unit, enabled: Boolean = true, tint: Color? = null, modifier: Modifier = Modifier) {
     val p = LocalPalette.current
-    Box(
-        modifier
-            .size(40.dp)
-            .pressable(enabled, onClick)
-            .clip(RoundedCornerShape(14.dp))
-            .background(p.glassFill.copy(alpha = if (p.dark) 0.35f else 0.5f))
-            .graphicsLayer { alpha = if (enabled) 1f else 0.35f },
-        contentAlignment = Alignment.Center
-    ) { Icon(icon, tint ?: p.text, 20.dp) }
+    LiquidGlass(
+        modifier.size(42.dp).pressable(enabled, onClick).graphicsLayer { alpha = if (enabled) 1f else 0.35f },
+        radius = 21.dp
+    ) {
+        Box(Modifier.size(42.dp), contentAlignment = Alignment.Center) { Icon(icon, tint ?: p.text, 21.dp) }
+    }
 }
 
 @Composable
@@ -243,10 +217,9 @@ fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
         Modifier
             .pressable(true, onClick)
             .clip(shape)
-            .background(if (selected) p.accent.copy(alpha = 0.9f) else p.glassFill.copy(alpha = if (p.dark) 0.4f else 0.55f))
-            .border(1.dp, p.glassEdge.copy(alpha = if (p.dark) 0.2f else 0.8f), shape)
-            .padding(horizontal = 12.dp, vertical = 7.dp)
-    ) { T(text, 13.sp, FontWeight.Medium, if (selected) Color.White else p.text, maxLines = 1) }
+            .background(if (selected) p.accent else if (p.dark) Color(0xFF2C2C2E) else Color(0x12000000))
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+    ) { T(text, 14.sp, FontWeight.Medium, if (selected) Color.White else p.text, maxLines = 1) }
 }
 
 @Composable
@@ -263,26 +236,31 @@ fun Field(
     keyboard: KeyboardOptions = KeyboardOptions.Default
 ) {
     val p = LocalPalette.current
-    val shape = RoundedCornerShape(14.dp)
-    Box(
-        modifier
-            .clip(shape)
-            .background(p.field)
-            .border(1.dp, p.glassEdge.copy(alpha = if (p.dark) 0.15f else 0.7f), shape)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
-            .heightIn(min = minHeight - 20.dp)
-    ) {
-        if (value.isEmpty() && hint.isNotEmpty()) T(hint, 14.sp, color = p.textDim)
-        BasicTextField(
-            value = value, onValueChange = onChange, enabled = enabled, singleLine = singleLine,
-            keyboardOptions = keyboard,
-            textStyle = TextStyle(
-                color = p.text, fontSize = 15.sp, textDirection = TextDirection.Content,
-                fontFamily = if (mono) FontFamily.Monospace else FontFamily.Default, lineHeight = 21.sp
-            ),
-            cursorBrush = SolidColor(p.accent),
-            modifier = Modifier.fillMaxWidth()
-        )
+    val shape = RoundedCornerShape(12.dp)
+    // Code/JSON (mono) is ALWAYS left-to-right, even in an Arabic UI; otherwise braces and lines render reversed.
+    val dir = if (mono) LayoutDirection.Ltr else LocalLayoutDirection.current
+    CompositionLocalProvider(LocalLayoutDirection provides dir) {
+        Box(
+            modifier
+                .clip(shape)
+                .background(p.field)
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+                .heightIn(min = minHeight - 20.dp)
+        ) {
+            if (value.isEmpty() && hint.isNotEmpty()) T(hint, 15.sp, color = p.textDim)
+            BasicTextField(
+                value = value, onValueChange = onChange, enabled = enabled, singleLine = singleLine,
+                keyboardOptions = keyboard,
+                textStyle = TextStyle(
+                    color = p.text, fontSize = if (mono) 14.sp else 16.sp,
+                    textDirection = if (mono) TextDirection.Ltr else TextDirection.Content,
+                    textAlign = if (mono) androidx.compose.ui.text.style.TextAlign.Left else androidx.compose.ui.text.style.TextAlign.Start,
+                    fontFamily = if (mono) FontFamily.Monospace else FontFamily.Default, lineHeight = if (mono) 20.sp else 22.sp
+                ),
+                cursorBrush = SolidColor(p.accent),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 }
 
@@ -293,22 +271,22 @@ fun Toggle(on: Boolean, onChange: (Boolean) -> Unit, label: String) {
         Modifier.fillMaxWidth().pressable(true) { onChange(!on) }.padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        T(label, 15.sp, modifier = Modifier.weight(1f, fill = true))
+        T(label, 16.sp, modifier = Modifier.weight(1f, fill = true))
         val x by animateFloatAsState(if (on) 1f else 0f, animationSpec = motion(), label = "toggle")
-        Box(Modifier.size(width = 48.dp, height = 28.dp).clip(RoundedCornerShape(50)).background(if (on) p.accent else p.field).padding(3.dp)) {
-            Box(Modifier.padding(start = (20.dp * x)).size(22.dp).clip(RoundedCornerShape(50)).background(Color.White))
+        Box(Modifier.size(width = 51.dp, height = 31.dp).clip(RoundedCornerShape(50)).background(if (on) p.ok else if (p.dark) Color(0xFF39393D) else Color(0x29000000)).padding(2.dp)) {
+            Box(Modifier.padding(start = (20.dp * x)).size(27.dp).shadow(2.dp, RoundedCornerShape(50)).clip(RoundedCornerShape(50)).background(Color.White))
         }
     }
 }
 
 @Composable
 fun SectionTitle(text: String) {
-    T(text, 13.sp, FontWeight.SemiBold, LocalPalette.current.textDim, Modifier.padding(top = 14.dp, bottom = 6.dp, start = 4.dp))
+    T(text.uppercase(), 12.sp, FontWeight.Medium, LocalPalette.current.textDim, Modifier.padding(top = 18.dp, bottom = 6.dp, start = 6.dp))
 }
 
 // ------------------------------------------------------------------ icon system (one stroke style, 24 grid)
 
-enum class Ic { HOME, DATA, BACKUP, GEAR, PLUS, CHECK, SEARCH, SPLIT, CLOCK, TRASH, COPY, UP, DOWN, BACK, UNDO, REDO, IMPORT, EXPORT, LOCK, SAVE, CLOSE, MERGE, SCISSORS }
+enum class Ic { HOME, DATA, BACKUP, GEAR, PLUS, CHECK, SEARCH, SPLIT, CLOCK, TRASH, COPY, UP, DOWN, BACK, UNDO, REDO, IMPORT, EXPORT, LOCK, SAVE, CLOSE, MERGE, SCISSORS, WRITE, CODE, DB, BOLT, LAYERS, PLAY }
 
 private typealias Line = List<Pair<Float, Float>>
 
@@ -339,6 +317,12 @@ private val ICONS: Map<Ic, Shape2> = mapOf(
     Ic.SAVE to Shape2(listOf(l(5f, 3f, 17f, 3f, 21f, 7f, 21f, 21f, 5f, 21f, 5f, 3f), l(8f, 3f, 8f, 9f, 16f, 9f, 16f, 3f), l(8f, 21f, 8f, 14f, 16f, 14f, 16f, 21f))),
     Ic.CLOSE to Shape2(listOf(l(6f, 6f, 18f, 18f), l(18f, 6f, 6f, 18f))),
     Ic.MERGE to Shape2(listOf(l(6f, 4f, 12f, 12f), l(18f, 4f, 12f, 12f), l(12f, 12f, 12f, 21f))),
+    Ic.WRITE to Shape2(listOf(l(4f, 20f, 5f, 15f, 16f, 4f, 20f, 8f, 9f, 19f, 4f, 20f), l(14f, 6f, 18f, 10f))),
+    Ic.CODE to Shape2(listOf(l(8f, 7f, 3f, 12f, 8f, 17f), l(16f, 7f, 21f, 12f, 16f, 17f), l(14f, 5f, 10f, 19f))),
+    Ic.DB to Shape2(listOf(l(4f, 6f, 4f, 18f), l(20f, 6f, 20f, 18f), l(4f, 12f, 8f, 14f, 16f, 14f, 20f, 12f), l(4f, 18f, 8f, 20f, 16f, 20f, 20f, 18f), l(4f, 6f, 8f, 4f, 16f, 4f, 20f, 6f, 16f, 8f, 8f, 8f, 4f, 6f))),
+    Ic.BOLT to Shape2(listOf(l(13f, 3f, 5f, 13f, 12f, 13f, 11f, 21f, 19f, 10f, 12f, 10f, 13f, 3f))),
+    Ic.LAYERS to Shape2(listOf(l(12f, 3f, 21f, 8f, 12f, 13f, 3f, 8f, 12f, 3f), l(3f, 12f, 12f, 17f, 21f, 12f), l(3f, 16f, 12f, 21f, 21f, 16f))),
+    Ic.PLAY to Shape2(listOf(l(7f, 4f, 19f, 12f, 7f, 20f, 7f, 4f))),
     Ic.SCISSORS to Shape2(listOf(l(8f, 8f, 20f, 18f), l(8f, 16f, 20f, 6f)), listOf(Triple(6f, 6.5f, 2.5f), Triple(6f, 17.5f, 2.5f)))
 )
 
@@ -366,22 +350,22 @@ fun Icon(ic: Ic, tint: Color, size: Dp = 22.dp) {
 @Composable
 fun Dock(items: List<Triple<Ic, String, Boolean>>, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
     val p = LocalPalette.current
-    Glass(modifier.fillMaxWidth().padding(horizontal = 18.dp), strength = 0.25f, radius = 30.dp) {
-        Row(Modifier.fillMaxWidth().padding(6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+    LiquidGlass(modifier.fillMaxWidth().padding(horizontal = 16.dp), radius = 32.dp) {
+        Row(Modifier.fillMaxWidth().padding(5.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             items.forEachIndexed { i, (ic, label, selected) ->
                 val a by animateFloatAsState(if (selected) 1f else 0f, animationSpec = motion(), label = "dock")
                 Box(
                     Modifier
                         .weight(1f)
                         .pressable(true) { onSelect(i) }
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(p.accent.copy(alpha = 0.16f * a))
+                        .clip(RoundedCornerShape(26.dp))
+                        .background(p.text.copy(alpha = 0.10f * a))
                         .padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(ic, if (selected) p.accent else p.textDim, 22.dp)
-                        T(label, 11.sp, if (selected) FontWeight.SemiBold else FontWeight.Normal, if (selected) p.accent else p.textDim, maxLines = 1)
+                        Icon(ic, if (selected) p.accent else p.textDim, 24.dp)
+                        T(label, 10.sp, if (selected) FontWeight.SemiBold else FontWeight.Medium, if (selected) p.accent else p.textDim, maxLines = 1)
                     }
                 }
             }

@@ -65,11 +65,15 @@ fn dispatch(op: &str, v: &Value) -> Result<Value, String> {
                         ("norm", Value::str(text::normalize(&t))),
                         ("script", Value::str(text::script_of(&t))),
                         ("chars", Value::int(t.chars().count() as i64)),
+                        ("tokens", Value::int(text::estimate_tokens(&t) as i64)),
                     ])
                 })
                 .collect();
             Ok(Value::obj(vec![("items", Value::Arr(items))]))
         }
+        "script" => crate::script::build(v),
+        "to_script" => crate::script::render(v),
+        "tokens" => crate::script::tokens(v),
         "dedup" => run_dedup(v),
         "export" => run_export(v),
         _ => Err(format!("unknown operation '{}'", op)),

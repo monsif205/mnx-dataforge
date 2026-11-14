@@ -76,3 +76,10 @@ Legend: VERIFIED = executed and passed here | COMPILE-UNVERIFIED = written, synt
 5. FRAMEWORK NOTE
     The original directive demanded Rust-only. The user chose the hybrid design (Kotlin UI, Rust engine)
     to match the Monex project rules. No Rust Android UI framework comparison or proof of concept was done.
+
+
+PHASE 3 (latest)
+ Done: AMOLED + iOS-style UI, real liquid glass (Glass.kt), Quick Write screen (text -> JSON with auto roles),
+       Find tab (duplicates + tokens), SQL tab, LTR fix for JSON fields, Rust script/tokens ops (38 tests pass).
+ Not verified on device/CI: see journal/phase3-ui-write-find.txt (UNVERIFIED section).
+ Not done: a "Text" view inside the single-record editor (Quick Write covers text entry for now).
