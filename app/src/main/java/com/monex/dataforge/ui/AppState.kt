@@ -59,6 +59,8 @@ class AppState(val ctx: Context) {
     var lang by mutableStateOf(prefs.getString("lang", if (Locale.getDefault().language == "ar") "ar" else "en") ?: "en")
     var reduceMotion by mutableStateOf(prefs.getBoolean("motion_off", false))
 
+    init { Lang.code = lang }
+
     var projects by mutableStateOf(listOf<Project>())
     var projectId by mutableStateOf("")
     var rev by mutableIntStateOf(0)
@@ -87,7 +89,7 @@ class AppState(val ctx: Context) {
     }
 
     fun setTheme(m: String) { themeMode = m; prefs.edit().putString("theme", m).apply() }
-    fun setLang(l: String) { lang = l; prefs.edit().putString("lang", l).apply() }
+    fun setLang(l: String) { lang = l; Lang.code = l; prefs.edit().putString("lang", l).apply() }
     fun setMotionOff(b: Boolean) { reduceMotion = b; prefs.edit().putBoolean("motion_off", b).apply() }
 
     fun bump() { rev++ }
