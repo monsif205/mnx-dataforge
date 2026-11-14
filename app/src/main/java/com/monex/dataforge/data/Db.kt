@@ -152,7 +152,7 @@ class Repo(private val helper: Db) {
         val id = uid()
         w.execSQL(
             "INSERT INTO datasets(id,project_id,name,kind,description,language,required,locked,created,updated) VALUES(?,?,?,?,?,?,?,0,?,?)",
-            arrayOf(id, projectId, name.trim().ifEmpty { "Dataset" }, kind, description, language, JSONArray(required).toString(), now(), now())
+            arrayOf<Any?>(id, projectId, name.trim().ifEmpty { "Dataset" }, kind, description, language, JSONArray(required).toString(), now(), now())
         )
         logDs(id, "create", kind)
         return dataset(id)!!
@@ -161,13 +161,13 @@ class Repo(private val helper: Db) {
     fun updateDatasetMeta(id: String, name: String, description: String, language: String, required: List<String>) {
         w.execSQL(
             "UPDATE datasets SET name=?, description=?, language=?, required=?, updated=? WHERE id=?",
-            arrayOf(name.trim(), description, language, JSONArray(required).toString(), now(), id)
+            arrayOf<Any?>(name.trim(), description, language, JSONArray(required).toString(), now(), id)
         )
         logDs(id, "meta", "name/description/language/required updated")
     }
 
     fun setLocked(id: String, locked: Boolean) {
-        w.execSQL("UPDATE datasets SET locked=?, updated=? WHERE id=?", arrayOf(if (locked) 1 else 0, now(), id))
+        w.execSQL("UPDATE datasets SET locked=?, updated=? WHERE id=?", arrayOf<Any?>(if (locked) 1 else 0, now(), id))
         logDs(id, if (locked) "lock" else "unlock", "")
     }
 
@@ -305,11 +305,11 @@ class Repo(private val helper: Db) {
                 cv.put("origin", r.origin); cv.put("source", r.source); cv.put("license", r.license)
                 cv.put("label", r.label); cv.put("grp", r.grp); cv.put("created", now()); cv.put("updated", now())
                 val seq = w.insertOrThrow("records", null, cv)
-                w.execSQL("INSERT INTO records_fts(docid, body) VALUES(?,?)", arrayOf(seq, nm[i]))
+                w.execSQL("INSERT INTO records_fts(docid, body) VALUES(?,?)", arrayOf<Any?>(seq, nm[i]))
                 if (history) addHistory(id, "create", "origin=${r.origin}")
                 ids.add(id)
             }
-            w.execSQL("UPDATE datasets SET updated=? WHERE id=?", arrayOf(now(), ds))
+            w.execSQL("UPDATE datasets SET updated=? WHERE id=?", arrayOf<Any?>(now(), ds))
             w.setTransactionSuccessful()
         } finally {
             w.endTransaction()
@@ -329,7 +329,7 @@ class Repo(private val helper: Db) {
                 "UPDATE records SET data=?, origin=?, label=COALESCE(?,label), updated=? WHERE id=?",
                 arrayOf<Any?>(data.toString(), origin, label, now(), id)
             )
-            w.execSQL("UPDATE records_fts SET body=? WHERE docid=?", arrayOf(nm, cur.seq))
+            w.execSQL("UPDATE records_fts SET body=? WHERE docid=?", arrayOf<Any?>(nm, cur.seq))
             addHistory(id, "edit", "origin ${cur.origin} -> $origin; previous version stored", prev)
             w.setTransactionSuccessful()
         } finally {
@@ -393,7 +393,7 @@ class Repo(private val helper: Db) {
         w.rawQuery("SELECT data FROM blobs WHERE hash=?", arrayOf(hash)).use { c -> if (c.moveToFirst()) c.getString(0) else null }
 
     fun logDs(ds: String, op: String, detail: String) {
-        w.execSQL("INSERT INTO dataset_log(dataset_id,ts,op,detail) VALUES(?,?,?,?)", arrayOf(ds, now(), op, detail))
+        w.execSQL("INSERT INTO dataset_log(dataset_id,ts,op,detail) VALUES(?,?,?,?)", arrayOf<Any?>(ds, now(), op, detail))
     }
 
     fun datasetLog(ds: String, limit: Int = 50): List<HistoryItem> {
@@ -405,7 +405,7 @@ class Repo(private val helper: Db) {
     }
 
     fun logImport(ds: String, source: String, license: String, imported: Int, rejected: Int) {
-        w.execSQL("INSERT INTO imports(id,dataset_id,source,license,ts,imported,rejected) VALUES(?,?,?,?,?,?,?)", arrayOf(uid(), ds, source, license, now(), imported, rejected))
+        w.execSQL("INSERT INTO imports(id,dataset_id,source,license,ts,imported,rejected) VALUES(?,?,?,?,?,?,?)", arrayOf<Any?>(uid(), ds, source, license, now(), imported, rejected))
         logDs(ds, "import", "$source: $imported imported, $rejected rejected, license=$license")
     }
 
@@ -544,7 +544,7 @@ class Repo(private val helper: Db) {
             val schema = JSONObject().put("kind", d.kind).put("required", JSONArray(d.required)).put("language", d.language)
             w.execSQL(
                 "INSERT INTO versions(id,dataset_id,number,label,created,record_count,schema_json) VALUES(?,?,?,?,?,?,?)",
-                arrayOf(vid, ds, number, label, now(), n, schema.toString())
+                arrayOf<Any?>(vid, ds, number, label, now(), n, schema.toString())
             )
             logDs(ds, "snapshot", "v$number: $label ($n records)")
             w.setTransactionSuccessful()
@@ -602,7 +602,7 @@ class Repo(private val helper: Db) {
                     cv.put("source", r[4]); cv.put("license", r[5]); cv.put("label", r[6]); cv.put("grp", r[7])
                     cv.put("created", now()); cv.put("updated", now())
                     val seq = w.insertOrThrow("records", null, cv)
-                    w.execSQL("INSERT INTO records_fts(docid, body) VALUES(?,?)", arrayOf(seq, nm[i]))
+                    w.execSQL("INSERT INTO records_fts(docid, body) VALUES(?,?)", arrayOf<Any?>(seq, nm[i]))
                 }
                 batch.clear()
             }
