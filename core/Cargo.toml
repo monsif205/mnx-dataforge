@@ -1,0 +1,11 @@
+[package]
+name = "dataforge-core"
+version = "0.1.0"
+edition = "2021"
+description = "MNX DataForge engine: JSON/JSONL/CSV, validation, dedup, splits, leakage, export. Zero dependencies."
+
+[lib]
+name = "dataforge_core"
+path = "src/lib.rs"
+
+[dependencies]

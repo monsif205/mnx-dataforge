@@ -1,0 +1,12 @@
+[package]
+name = "dataforge-jni"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "dataforge_jni"
+crate-type = ["cdylib"]
+
+[dependencies]
+dataforge-core = { path = "../core" }
+jni = "0.21"

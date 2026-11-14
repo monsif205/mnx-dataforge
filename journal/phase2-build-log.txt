@@ -1,0 +1,34 @@
+MNX DATAFORGE - BUILD LOG (what was written and why)
+
+core/src/json.rs      Strict JSON parser/writer. Own implementation so Arabic is never escaped and key order is
+                      kept; raw number text preserved; surrogate pairs validated; depth limit 128 (stack safety).
+core/src/csv.rs       RFC 4180 reader/writer (quotes, CRLF, BOM) so imports/exports round-trip.
+core/src/text.rs      FNV-1a hash, normalization (lowercase, strip Arabic diacritics/tatweel/bidi marks, fold
+                      alef and yaa variants, punctuation to spaces), word shingles, Jaccard, script detection.
+core/src/dedup.rs     Exact groups, near-duplicate pairs (all-pairs under 400 records; MinHash 32 x LSH 8 bands
+                      above, every candidate verified with exact Jaccard), union-find clusters.
+core/src/validate.rs  Rule table with deterministic/heuristic flag. Conversation rules C001-C009, record rules
+                      R001-R007. Never modifies input. Validation id = hash(config + records) => reproducible.
+core/src/split.rs     Seeded splitmix RNG; units (group or duplicate cluster) kept together; per-label deficit
+                      allocation gives stratification.
+core/src/leak.rs     Cross-split exact (deterministic) and near (heuristic) duplicates, shared sources, intended.
+core/src/export.rs    messages/sharegpt/chatml/alpaca/raw conversion, role mapping, optional metadata.
+core/src/stats.rs     Length histogram (power-of-two buckets), percentiles, script share.
+core/src/api.rs       Single JSON-in/JSON-out entry point (ops: parse_jsonl, parse_json, parse_csv, to_csv,
+                      to_jsonl, validate, dedup, split, leakage, stats, record_info, export, normalize, version).
+jni/                  Bridge; panics caught so they cannot cross the FFI boundary.
+app/data/Db.kt        SQLite schema v1 + repository. Records are mutable rows; every edit stores the previous
+                      content as a blob (sha256) and writes a history row. Snapshots reference blobs, so identical
+                      content is stored once. Restore takes an automatic safety snapshot first.
+                      Locked datasets reject every write at repository level (not only in the UI).
+app/ops/Ops.kt        Streaming import/export in 500-row batches; validation runs in 1000-row chunks and then a
+                      dataset-wide dedup pass; export is re-read and hashed for integrity.
+app/ui/*              Design system and screens.
+build.gradle / CI     minSdk 35 (project rule: Android 15+), arm64 only, R8 + resource shrinking.
+core/examples/bench.rs Host benchmark (numbers are for the build machine, not for a phone).
+
+DECISIONS
+  - SQLite (Android built-in) instead of a Rust database: no extra native dependency, FTS4 included, proven
+    crash recovery (WAL). A Rust store would only add APK size.
+  - Engine has zero crates so the host tests run anywhere; only the JNI bridge needs the jni crate.
+  - Free-form text search uses FTS over normalized text (Arabic folding done by the Rust engine).

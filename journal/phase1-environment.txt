@@ -1,0 +1,42 @@
+MNX DATAFORGE - PHASE 1 - ENVIRONMENT INSPECTION
+Date: 2026-11-13
+
+DECISION RECORDED (user choice): HYBRID ARCHITECTURE
+- UI layer: Kotlin only (Jetpack Compose or plain Android Views), minSdk 35 (Android 15+).
+- Banned: Google Play Services, Android System WebView / any WebView.
+- Core engine: Rust (no_std not required), called through JNI. Holds storage,
+  validation, dedup, import/export, versioning, splits, search.
+- Reason: matches the project rule (Kotlin UI only) while keeping the heavy,
+  RAM-critical logic in Rust. The original directive said Rust-only; this
+  deviation is approved by the user.
+
+FINDINGS (actual commands run, nothing assumed)
+- rustc/cargo 1.97.0. Installed targets: x86_64-unknown-linux-gnu ONLY.
+  No aarch64-linux-android target.
+- Java: OpenJDK 21. Gradle 8.14.3 at /opt/gradle-8.14.3.
+- kotlinc: not installed (Kotlin only exists inside Gradle's own jars).
+- Android SDK: not found. ANDROID_HOME unset. No platforms, no build-tools.
+- Android NDK: not found. cargo-ndk, adb, sdkmanager: not found.
+- Machine: 2 cores, 8 GB RAM, 31 GB free disk.
+- Network for package installs from Bash: disabled for this account.
+- Existing project code: none. Directory was empty.
+
+CONSEQUENCE
+- A real APK cannot be built or installed inside this session:
+  no SDK, no NDK, no Android Rust target, and no way to download them.
+- What CAN be done here: write and unit-test the full Rust core on the host
+  (x86_64), write the Kotlin UI sources and Gradle project files.
+- Compiling the APK needs one of: (a) the user's own build machine / CI with
+  SDK 35 + NDK + rust target aarch64-linux-android, or (b) network installs
+  enabled in account settings (applies to a NEW chat).
+- Nothing will be reported as "Verified on device" until it actually is.
+
+NEXT (Phase 2/3, in order)
+1. Storage decision: SQLite (rusqlite, bundled, FTS5) vs redb vs sled. Default
+   candidate: SQLite + FTS5, WAL mode, because of crash safety and search.
+   Rust crates cannot be fetched offline, so the choice must be validated
+   when network/crates are available.
+2. Rust core crate layout (workspace): core-model, core-storage, core-validate,
+   core-io (json/jsonl/csv), core-version, core-split, core-search, jni-bridge.
+3. Kotlin UI: single-activity, liquid glass via RenderEffect blur (API 31+),
+   RTL/Arabic via Compose, no WebView, no Play Services.

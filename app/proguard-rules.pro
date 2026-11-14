@@ -1,0 +1,1 @@
+-keep class com.monex.dataforge.core.NativeCore { native <methods>; }

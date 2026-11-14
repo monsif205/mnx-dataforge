@@ -1,0 +1,78 @@
+MNX DATAFORGE - STATUS REPORT (0.1.0)
+Date: 2026-11-14
+Legend: VERIFIED = executed and passed here | COMPILE-UNVERIFIED = written, syntax-parsed only |
+        NOT IMPLEMENTED
+
+1. WHAT WAS ACTUALLY RUN IN THIS SESSION
+  - Rust engine (core/): 33 unit tests, all pass (host x86_64, cargo test).        VERIFIED
+  - Kotlin sources: parsed with the Kotlin 2.0.21 compiler front end. No syntax errors. Type checking was
+    NOT possible (no Android SDK / Compose jars here), so compile errors can still exist.   COMPILE-UNVERIFIED
+  - JNI crate (jni/): not compiled (the jni crate cannot be downloaded in this session).   COMPILE-UNVERIFIED
+  - No APK was built. Nothing was installed or launched on a device.
+  - Host benchmark (x86_64 container, NOT a phone), 50,000 two-message Arabic conversations (13.2 MB JSON):
+      validate with exact + near-duplicate detection: 1196 ms
+      dedup only: 849 ms
+      stratified split: 85 ms
+    Device numbers will be slower; no device budget has been set because no device run exists.
+
+2. REQUIREMENTS: STATE
+  Engine (Rust)
+    JSON strict parser/writer, Unicode/Arabic preserved, depth limit ........ VERIFIED (tests)
+    JSONL / CSV parse + write, round trips ................................... VERIFIED (tests)
+    Validation: structure, required fields, conversation roles, tool calls,
+      empty messages, repeated messages, exact dups (deterministic), near dups,
+      length, repetition (heuristic). Reproducible validation id, never mutates  VERIFIED (tests)
+    Near-duplicate: MinHash+LSH above 400 records, exact Jaccard below ......... VERIFIED (planted-duplicate test)
+    Splits: seeded, stratified, group-aware, duplicate-aware ................... VERIFIED (tests)
+    Leakage check across splits, intended similarity separated ................ VERIFIED (tests)
+    Export profiles: messages, sharegpt, alpaca, chatml, raw, role map ......... VERIFIED (tests)
+    Composition statistics (length histogram, script share) .................... VERIFIED (test)
+  Android app (Kotlin)  -- all COMPILE-UNVERIFIED
+    Projects: create, rename, duplicate, archive, delete(confirm), switch
+    Datasets: create from 16 type templates, custom required fields, duplicate, delete, lock/unlock
+    Records: list with pagination, Arabic-aware full text search (FTS), split filter, bulk select,
+      bulk split assignment, bulk delete (content kept in history store)
+    Editors: JSON editor with strict live check; multi-turn conversation editor (roles, add, remove,
+      duplicate, reorder, split on blank line, merge, raw JSON view), undo/redo, draft recovery,
+      unsaved-change warning, live validation findings (warnings only)
+    Provenance: origin (human / template / imported / transformed / edited_import / ai_generated),
+      source, license, per-record edit history with restore of previous content
+    Import: JSONL streaming (500/batch), JSON, CSV, TSV, TXT; ShareGPT/Alpaca/prompt-completion converted
+      and marked "transformed"; per-record license; rejected-line report; cancel
+    Export: jsonl/json/csv/txt/md, profiles, split filter, metadata, streaming, SHA-256 re-read check
+    Quality tab: validation runs saved with id, rules, counts, duration, config; composition charts
+    Splits tab: ratio/seed/stratify/group/duplicate-aware preview + apply; evaluation-move confirmation;
+      leakage check
+    Versions: content-addressed snapshots, compare (added/removed/modified/split changed), restore with
+      automatic safety snapshot
+    Batch: template with {{variables}}, cartesian expansion, preview, duplicate prevention, limit
+    Backup: full workspace backup (VACUUM INTO) with integrity check; restore preview + safety copy
+    Design: glass material, light/dark, custom icon set, dock, animations, reduce-motion, Arabic RTL, EN/AR
+    Privacy: no permissions declared, no network code
+
+3. NOT IMPLEMENTED (be aware)
+    - Structured Knowledge Studio as a dedicated screen (only the "knowledge" record template exists)
+    - Visual pipeline builder and pipeline execution history
+    - Schema editor with versioned schemas and migration previews (only required-field lists)
+    - Dataset merge / split into datasets / dataset-to-dataset compare; export of a specific old version
+    - Conversation style/behaviour presets; Q&A pattern builder (use templates in the Batch tab)
+    - Optional AI-assisted generation, secure credential storage
+    - Parquet export; selected-record / per-dataset backup (only full workspace backup)
+    - Automatic scheduled backups; saved filters; date and quality filters in search
+    - Write-protection "access history" for evaluation sets (lock/unlock events are logged in the dataset log)
+    - Marking records as "intended similarity" in the UI (the engine supports it)
+    - Arabic search is token-based after normalization (diacritics, alef/yaa variants folded); no stemming
+    - Language is detected by script only (arabic/latin/mixed), not true language identification
+    - Dedup/leakage scan the first 50,000 records of a dataset; the report says when that limit applies
+    - UI automated tests; device performance measurements; accessibility audit
+
+4. KNOWN RISKS
+    - First Gradle build may reveal Kotlin/Compose type errors that could not be detected here.
+    - Release APK uses the debug signing key.
+    - Liquid glass here is a translucent gradient material with specular edge and soft shadow. It is not
+      real backdrop blur/refraction (that was left out to keep rendering cheap on 4 GB devices).
+    - Status/navigation bar icon colours follow the selected theme; not checked on a device.
+
+5. FRAMEWORK NOTE
+    The original directive demanded Rust-only. The user chose the hybrid design (Kotlin UI, Rust engine)
+    to match the Monex project rules. No Rust Android UI framework comparison or proof of concept was done.
