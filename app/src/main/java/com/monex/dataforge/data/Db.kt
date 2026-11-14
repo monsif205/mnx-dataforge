@@ -105,21 +105,21 @@ class Repo(private val helper: Db) {
 
     fun createProject(name: String): Project {
         val p = Project(uid(), name.trim().ifEmpty { "Project" })
-        w.execSQL("INSERT INTO projects(id,name,created,updated) VALUES(?,?,?,?)", arrayOf(p.id, p.name, now(), now()))
+        w.execSQL("INSERT INTO projects(id,name,created,updated) VALUES(?,?,?,?)", arrayOf<Any?>(p.id, p.name, now(), now()))
         return p
     }
 
     fun renameProject(id: String, name: String) {
-        w.execSQL("UPDATE projects SET name=?, updated=? WHERE id=?", arrayOf(name.trim(), now(), id))
+        w.execSQL("UPDATE projects SET name=?, updated=? WHERE id=?", arrayOf<Any?>(name.trim(), now(), id))
     }
 
     fun archiveProject(id: String) {
-        w.execSQL("UPDATE projects SET archived=1, updated=? WHERE id=?", arrayOf(now(), id))
+        w.execSQL("UPDATE projects SET archived=1, updated=? WHERE id=?", arrayOf<Any?>(now(), id))
     }
 
     fun deleteProject(id: String) {
         datasets(id).forEach { deleteDataset(it.id) }
-        w.execSQL("DELETE FROM projects WHERE id=?", arrayOf(id))
+        w.execSQL("DELETE FROM projects WHERE id=?", arrayOf<Any?>(id))
     }
 
     fun duplicateProject(id: String): Project {
@@ -174,14 +174,14 @@ class Repo(private val helper: Db) {
     fun deleteDataset(id: String) {
         w.beginTransaction()
         try {
-            w.execSQL("DELETE FROM records_fts WHERE docid IN (SELECT seq FROM records WHERE dataset_id=?)", arrayOf(id))
-            w.execSQL("DELETE FROM records WHERE dataset_id=?", arrayOf(id))
-            w.execSQL("DELETE FROM version_records WHERE version_id IN (SELECT id FROM versions WHERE dataset_id=?)", arrayOf(id))
-            w.execSQL("DELETE FROM versions WHERE dataset_id=?", arrayOf(id))
-            w.execSQL("DELETE FROM validation_runs WHERE dataset_id=?", arrayOf(id))
-            w.execSQL("DELETE FROM dataset_log WHERE dataset_id=?", arrayOf(id))
-            w.execSQL("DELETE FROM imports WHERE dataset_id=?", arrayOf(id))
-            w.execSQL("DELETE FROM datasets WHERE id=?", arrayOf(id))
+            w.execSQL("DELETE FROM records_fts WHERE docid IN (SELECT seq FROM records WHERE dataset_id=?)", arrayOf<Any?>(id))
+            w.execSQL("DELETE FROM records WHERE dataset_id=?", arrayOf<Any?>(id))
+            w.execSQL("DELETE FROM version_records WHERE version_id IN (SELECT id FROM versions WHERE dataset_id=?)", arrayOf<Any?>(id))
+            w.execSQL("DELETE FROM versions WHERE dataset_id=?", arrayOf<Any?>(id))
+            w.execSQL("DELETE FROM validation_runs WHERE dataset_id=?", arrayOf<Any?>(id))
+            w.execSQL("DELETE FROM dataset_log WHERE dataset_id=?", arrayOf<Any?>(id))
+            w.execSQL("DELETE FROM imports WHERE dataset_id=?", arrayOf<Any?>(id))
+            w.execSQL("DELETE FROM datasets WHERE id=?", arrayOf<Any?>(id))
             w.execSQL("DELETE FROM blobs WHERE hash NOT IN (SELECT hash FROM version_records) AND hash NOT IN (SELECT hash FROM record_history WHERE hash IS NOT NULL)")
             w.setTransactionSuccessful()
         } finally {
@@ -281,7 +281,7 @@ class Repo(private val helper: Db) {
 
     private fun putBlob(data: String): String {
         val h = sha256Hex(data)
-        w.execSQL("INSERT OR IGNORE INTO blobs(hash,data) VALUES(?,?)", arrayOf(h, data))
+        w.execSQL("INSERT OR IGNORE INTO blobs(hash,data) VALUES(?,?)", arrayOf<Any?>(h, data))
         return h
     }
 
@@ -357,8 +357,8 @@ class Repo(private val helper: Db) {
                 requireUnlocked(r.datasetId)
                 val h = putBlob(r.data)
                 addHistory(id, "delete", "deleted; final content kept as blob", h)
-                w.execSQL("DELETE FROM records_fts WHERE docid=?", arrayOf(r.seq))
-                w.execSQL("DELETE FROM records WHERE id=?", arrayOf(id))
+                w.execSQL("DELETE FROM records_fts WHERE docid=?", arrayOf<Any?>(r.seq))
+                w.execSQL("DELETE FROM records WHERE id=?", arrayOf<Any?>(id))
             }
             w.setTransactionSuccessful()
         } finally {
@@ -511,7 +511,7 @@ class Repo(private val helper: Db) {
     fun saveValidation(ds: String, report: JSONObject) {
         w.execSQL(
             "INSERT OR REPLACE INTO validation_runs(id,dataset_id,created,errors,warnings,report) VALUES(?,?,?,?,?,?)",
-            arrayOf(report.getString("validation_id"), ds, now(), report.getInt("errors"), report.getInt("warnings"), report.toString())
+            arrayOf<Any?>(report.getString("validation_id"), ds, now(), report.getInt("errors"), report.getInt("warnings"), report.toString())
         )
     }
 
@@ -589,8 +589,8 @@ class Repo(private val helper: Db) {
         snapshot(ds, "auto: before restore")
         w.beginTransaction()
         try {
-            w.execSQL("DELETE FROM records_fts WHERE docid IN (SELECT seq FROM records WHERE dataset_id=?)", arrayOf(ds))
-            w.execSQL("DELETE FROM records WHERE dataset_id=?", arrayOf(ds))
+            w.execSQL("DELETE FROM records_fts WHERE docid IN (SELECT seq FROM records WHERE dataset_id=?)", arrayOf<Any?>(ds))
+            w.execSQL("DELETE FROM records WHERE dataset_id=?", arrayOf<Any?>(ds))
             val batch = ArrayList<Array<String?>>()
             fun flush() {
                 if (batch.isEmpty()) return
