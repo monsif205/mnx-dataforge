@@ -13,9 +13,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.BufferedWriter
-import java.io.DigestOutputStream
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+import java.security.DigestOutputStream
 import java.security.MessageDigest
 
 const val MAX_TEXT_IMPORT_BYTES = 64L * 1024 * 1024
