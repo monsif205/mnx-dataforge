@@ -138,7 +138,7 @@ fun DataScreen(st: AppState) {
                 }
             }
             list.forEachIndexed { idx, ds ->
-                Glass(Modifier.fillMaxWidth().pressable(onLongClick = { menuDs = ds }) { st.push(Screen.DatasetS(ds.id)) }, strength = 0.55f, delay = minOf(idx, 8) * 40) {
+                Glass(Modifier.fillMaxWidth().pressableLong(true, { st.push(Screen.DatasetS(ds.id)) }, { menuDs = ds }), strength = 0.55f, delay = minOf(idx, 8) * 40) {
                     Row(Modifier.padding(14.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             T(ds.name, 16.sp, FontWeight.SemiBold, maxLines = 1)

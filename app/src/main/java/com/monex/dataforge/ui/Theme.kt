@@ -160,7 +160,10 @@ fun Glass(
 }
 
 @Composable
-fun Modifier.pressable(enabled: Boolean = true, onLongClick: (() -> Unit)? = null, onClick: () -> Unit): Modifier {
+fun Modifier.pressable(enabled: Boolean = true, onClick: () -> Unit): Modifier = pressableLong(enabled, onClick, null)
+
+@Composable
+fun Modifier.pressableLong(enabled: Boolean, onClick: () -> Unit, onLongClick: (() -> Unit)?): Modifier {
     val src = remember { MutableInteractionSource() }
     val pressed by src.collectIsPressedAsState()
     val s by animateFloatAsState(if (pressed && enabled) 0.95f else 1f, animationSpec = motion(), label = "press")
