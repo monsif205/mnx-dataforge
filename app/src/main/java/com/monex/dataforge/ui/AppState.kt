@@ -20,6 +20,7 @@ sealed class Screen {
     data class DatasetS(val id: String) : Screen()
     data class EditorS(val datasetId: String, val recordId: String?) : Screen()
     data class WriteS(val datasetId: String) : Screen()
+    object LogsS : Screen()
 }
 
 class KindInfo(val id: String, val en: String, val ar: String, val required: List<String>, val template: String)
@@ -104,10 +105,18 @@ class AppState(val ctx: Context) {
     fun <T> work(label: String, block: () -> T, done: (T) -> Unit = {}) {
         if (busy != null) { message = "Another task is running"; return }
         busy = label; busyDetail = ""; cancelFlag.set(false)
+        com.monex.dataforge.core.Logger.i("work", "start: $label")
         scope.launch {
             val r = try { Result.success(withContext(Dispatchers.IO) { block() }) } catch (e: Throwable) { Result.failure(e) }
             busy = null
-            r.fold({ done(it); bump() }, { message = it.message ?: it.toString(); bump() })
+            r.fold({
+                com.monex.dataforge.core.Logger.i("work", "done: $label")
+                try { done(it) } catch (e: Throwable) { com.monex.dataforge.core.Logger.e("work", "callback failed: $label", e); message = e.message ?: e.toString() }
+                bump()
+            }, {
+                com.monex.dataforge.core.Logger.e("work", "FAILED: $label", it)
+                message = it.message ?: it.toString(); bump()
+            })
         }
     }
 }

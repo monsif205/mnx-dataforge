@@ -84,7 +84,7 @@ fun ChipRow(content: @Composable RowScope.() -> Unit) {
 @Composable
 fun Modal(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Glass(Modifier.padding(20.dp).fillMaxWidth(), strength = 0.95f, radius = 26.dp) {
+        Glass(Modifier.padding(20.dp).fillMaxWidth().popIn(), strength = 0.95f, radius = 26.dp) {
             Column(
                 Modifier.padding(18.dp).heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp), content = content

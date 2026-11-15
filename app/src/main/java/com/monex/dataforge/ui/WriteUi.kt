@@ -59,30 +59,6 @@ import org.json.JSONObject
 
 private val CONV_LABELS = listOf("System", "User", "Assistant", "Tool")
 
-/** Label of the last labelled line in [before], canonicalised, or null. */
-internal fun lastLabel(before: String, labels: List<String>): String? {
-    val lines = before.split('\n')
-    for (i in lines.indices.reversed()) {
-        val t = lines[i].trimStart()
-        val idx = t.indexOf(':')
-        if (idx <= 0) continue
-        val l = t.substring(0, idx)
-        if (l.any { it.isWhitespace() }) continue
-        val hit = labels.firstOrNull { it.equals(l, ignoreCase = true) }
-        if (hit != null) return hit
-        when (l.lowercase()) { "human" -> return "User"; "ai", "gpt", "bot", "model" -> return "Assistant" }
-    }
-    return null
-}
-
-/** The label that automatically follows [cur] after Enter. Conversations alternate User/Assistant. */
-internal fun nextLabel(cur: String?, conversation: Boolean, fields: List<String>): String {
-    if (conversation) return when (cur) { "User" -> "Assistant"; "Assistant" -> "User"; "System" -> "User"; "Tool" -> "Assistant"; else -> "User" }
-    if (fields.isEmpty()) return ""
-    val i = fields.indexOf(cur)
-    return if (i < 0) fields.first() else fields[(i + 1) % fields.size]
-}
-
 private class LabelColors(val labels: Set<String>, val accent: Color, val dim: Color) : VisualTransformation {
     override fun filter(text: AnnotatedString): TransformedText {
         val b = AnnotatedString.Builder(text.text)
@@ -184,12 +160,10 @@ private fun WriteBody(st: AppState, ds: Dataset) {
             val pos = nv.selection.start
             if (pos > 0 && nv.text[pos - 1] == '\n') {
                 val before = nv.text.substring(0, pos - 1)
-                val lineStart = before.lastIndexOf('\n') + 1
-                val line = before.substring(lineStart)
-                val cur = lastLabel(before, labels)
-                // Enter on an empty "Label: " line does nothing (no empty messages).
-                if (cur != null && line.trim().equals("$cur:", ignoreCase = true)) { tv = old; return }
-                val ins = nextLabel(cur, conv, fields).let { if (it.isEmpty()) "" else "$it: " }
+                // The Rust engine decides the next role (alternation / field cycle) and detects empty label lines.
+                val r = NativeCore.run("enter", request(before).also { it.remove("text"); it.put("before", before) })
+                if (r.getBoolean("empty")) { tv = old; return }
+                val ins = r.getString("insert")
                 val t = nv.text.substring(0, pos) + ins + nv.text.substring(pos)
                 tv = TextFieldValue(t, TextRange(pos + ins.length))
                 return
@@ -261,7 +235,7 @@ private fun WriteBody(st: AppState, ds: Dataset) {
         if (b.errors > 0) T(tr("${b.errors} validation errors", "${b.errors} أخطاء تحقق") + (if (b.firstErrors.isNotEmpty()) ": " + b.firstErrors.joinToString("; ") else ""), 13.sp, color = p.danger)
         b.warnings.take(4).forEach { T("• $it", 12.sp, color = p.warn) }
         if (b.records.length() > 0) {
-            val pretty = b.records.getJSONObject(0).toString(2)
+            val pretty = NativeCore.pretty(b.records.getJSONObject(0).toString())
             Box(Modifier.fillMaxWidth().background(p.field, androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).padding(10.dp).horizontalScroll(rememberScrollState())) {
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) { T(pretty.take(1500), 12.sp, mono = true) }
             }
@@ -283,7 +257,7 @@ private fun WriteBody(st: AppState, ds: Dataset) {
             GButton(".jsonl", { showBuild = false; saver.launch("${ds.name}.jsonl") }, Modifier.weight(1f), icon = Ic.SAVE, enabled = b.records.length() > 0)
             GButton("JSON", {
                 val arr = JSONArray(); for (i in 0 until b.records.length()) arr.put(b.records.getJSONObject(i))
-                copyText(ctx, "json", arr.toString(2)); st.toast(tr("Copied", "تم النسخ"))
+                copyText(ctx, "json", NativeCore.pretty(arr.toString())); st.toast(tr("Copied", "تم النسخ"))
             }, Modifier.weight(1f), icon = Ic.COPY, enabled = b.records.length() > 0)
         }
         GButton(tr("Close", "إغلاق"), { showBuild = false }, Modifier.fillMaxWidth())

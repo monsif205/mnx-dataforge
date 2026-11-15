@@ -14,10 +14,25 @@ android {
         applicationId = "com.monex.dataforge"
         minSdk = 35
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        // CI passes the run number, so every build has a higher versionCode and can update the previous one.
+        val code = (System.getenv("VERSION_CODE") ?: "1").toInt()
+        versionCode = code
+        versionName = "0.2.$code"
         // Samsung A06 and nearly all current phones are arm64. One ABI keeps the APK small.
         ndk { abiFilters += listOf("arm64-v8a") }
+    }
+
+    signingConfigs {
+        // Your own release key (from GitHub secrets). Same key on every build = updates install over the old app.
+        val ks = System.getenv("KEYSTORE_FILE")
+        if (ks != null && File(ks).exists()) {
+            create("release") {
+                storeFile = File(ks)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS") ?: "mnx"
+                keyPassword = System.getenv("KEYSTORE_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -25,9 +40,8 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Signed with the debug key so the APK installs directly. Replace with your own
-            // keystore before publishing anywhere.
-            signingConfig = signingConfigs.getByName("debug")
+            // Own key when the secrets exist, otherwise the debug key (installs, but cannot update a release-signed app).
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 

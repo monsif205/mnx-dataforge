@@ -1,0 +1,39 @@
+PHASE 4 - logs, own signing key, in-app updater, more Rust, animations
+=====================================================================
+
+SIGNING (fixes "app closes / will not install over the old one")
+ Every CI run used a throw-away debug key, so Android refused to install a new build over the old one (different
+ signature). Now: one permanent key (mnx-release.jks, generated once, 4096-bit RSA, valid 100 years).
+ CI reads it from two GitHub secrets (KEYSTORE_B64, KEYSTORE_PASSWORD; alias "mnx"). versionCode = CI run number, so
+ each build is higher than the last. Without the secrets the build falls back to the debug key and publishes nothing.
+ After each signed build CI publishes a GitHub Release "build-<N>" containing MNX-DataForge-<N>.apk.
+ THE KEY MUST BE BACKED UP: if it is lost, installed apps can never be updated again (only uninstall + reinstall).
+
+LOGS
+ core/Logger.kt: rotating file log (2 x 256 KB) + uncaught-exception handler that writes the full stack trace and a
+ "crashed" flag; next start shows a toast pointing to Settings -> Logs. AppState.work() now logs start / done / failure
+ and catches exceptions thrown inside the completion callback (before, such an exception ran on the main thread and
+ killed the app, which matches "I create something and the app closes").
+ ui/LogsUi.kt: log viewer (always LTR), Copy, Save .txt, Send to GitHub (opens a pre-filled issue page in the browser and
+ copies the full log to the clipboard; no token needed), Clear.
+
+UPDATER
+ core/Updater.kt + Settings card. Manual only: GitHub API releases/latest -> Rust op release_info (tag build-N vs installed
+ versionCode) -> download to cache -> checks package name -> system installer through FileProvider.
+ Needs INTERNET + REQUEST_INSTALL_PACKAGES (declared in the manifest; privacy text in Settings updated).
+ Works only if the repository is public (private repos return 404 to anonymous requests).
+
+RUST (moved out of Kotlin)
+ core/src/tools.rs: pretty (indented JSON, keeps key order, Unicode, no "\/" escapes), preview (list one-liners),
+ enter (Quick Write: next role / field cycle / empty-label detection), release_info (updater parser).
+ json.rs: to_pretty. Kotlin previewOf, the Kotlin Enter logic and org.json toString(2) were removed or replaced by these ops.
+ Host tests: 44 passing.
+
+ANIMATION
+ appear() fade+rise on every card (staggered on the home list), popIn() for dialogs and toasts, animated chip colours,
+ dock icon scale, slide+fade between screens (direction follows push/pop), slide+fade between dataset tabs,
+ animateItem() on record rows (insert/delete/reorder). All of it respects "Reduce motion".
+
+UNVERIFIED (no Android SDK here)
+ Whole Kotlin side compiles only in CI. Same caveats as phase 3 plus: FileProvider/installer flow, GitHub Release publishing step,
+ and the Kotlin 2.3 toolchain.

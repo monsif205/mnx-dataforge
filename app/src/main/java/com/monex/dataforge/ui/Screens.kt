@@ -127,8 +127,8 @@ fun DataScreen(st: AppState) {
                     }
                 }
             }
-            list.forEach { ds ->
-                Glass(Modifier.fillMaxWidth().pressable { st.push(Screen.DatasetS(ds.id)) }, strength = 0.55f) {
+            list.forEachIndexed { idx, ds ->
+                Glass(Modifier.fillMaxWidth().pressable { st.push(Screen.DatasetS(ds.id)) }, strength = 0.55f, delay = minOf(idx, 8) * 40) {
                     Row(Modifier.padding(14.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             T(ds.name, 16.sp, FontWeight.SemiBold, maxLines = 1)
@@ -278,11 +278,19 @@ fun SettingsScreen(st: AppState) {
                     Toggle(st.reduceMotion, { st.setMotionOff(it) }, tr("Reduce motion", "تقليل الحركة"))
                 }
             }
+            UpdateCard(st)
+            Glass(Modifier.fillMaxWidth(), strength = 0.55f) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    T(tr("Logs", "السجلات"), 16.sp, FontWeight.SemiBold)
+                    T(tr("Crash reports and operation logs are kept on this device. Open them to copy, save or send to GitHub.", "تقارير الأعطال وسجل العمليات محفوظة على الجهاز. افتحها للنسخ أو الحفظ أو الإرسال إلى GitHub."), 13.sp, color = p.textDim)
+                    GButton(tr("Open logs", "فتح السجلات"), { st.push(Screen.LogsS) }, Modifier.fillMaxWidth(), icon = Ic.CODE)
+                }
+            }
             Glass(Modifier.fillMaxWidth(), strength = 0.55f) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     T(tr("Privacy", "الخصوصية"), 16.sp, FontWeight.SemiBold)
-                    T(tr("This app declares no permissions at all: no internet, no storage access. Files are opened and saved only through the system file picker. Nothing is uploaded, no telemetry, no accounts.",
-                        "التطبيق لا يطلب أي صلاحية: لا إنترنت ولا وصول للتخزين. تفتح الملفات وتحفظ فقط عبر منتقي الملفات. لا رفع ولا تتبع ولا حسابات."), 13.sp, color = p.textDim)
+                    T(tr("The internet permission is used only when you press “Check for updates” or “Download and install”. Files are opened and saved only through the system file picker. No telemetry, no accounts, nothing is uploaded.",
+                        "صلاحية الإنترنت تُستعمل فقط عند الضغط على «فحص التحديثات» أو «تنزيل وتثبيت». تفتح الملفات وتحفظ عبر منتقي الملفات فقط. لا تتبع ولا حسابات ولا رفع."), 13.sp, color = p.textDim)
                 }
             }
             Glass(Modifier.fillMaxWidth(), strength = 0.55f) {
@@ -291,7 +299,7 @@ fun SettingsScreen(st: AppState) {
                     T(tr("Not implemented in this version. The app is fully usable without it, and no external provider is contacted.", "غير مُنفّذ في هذا الإصدار. التطبيق يعمل كاملا بدونه ولا يتصل بأي مزود خارجي."), 13.sp, color = p.textDim)
                 }
             }
-            T("MNX DataForge 0.1.0", 12.sp, color = p.textDim)
+            T(com.monex.dataforge.core.Logger.headerLine(), 11.sp, color = p.textDim)
             Row(Modifier.padding(bottom = 120.dp)) {}
         }
     }

@@ -5,6 +5,9 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -19,10 +22,7 @@ jobs:
           java-version: 17
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          packages: 'platform-tools'
-    
+        uses: android-actions/setup-android@v3
 
       - name: Install SDK platform and build tools
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
@@ -51,7 +51,23 @@ jobs:
         with:
           gradle-version: 8.14.3
 
+      - name: Prepare signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "HAS_KEY=true" >> "$GITHUB_ENV"
+          else
+            echo "No KEYSTORE_B64 secret: building with the debug key (no release will be published)."
+          fi
+
       - name: Build release APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: mnx
+          VERSION_CODE: ${{ github.run_number }}
         run: gradle :app:assembleRelease --no-daemon
 
       - name: Upload APK
@@ -59,3 +75,13 @@ jobs:
         with:
           name: MNX-DataForge-apk
           path: app/build/outputs/apk/release/*.apk
+
+      - name: Publish GitHub Release (signed builds only)
+        if: env.HAS_KEY == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/release/*.apk "MNX-DataForge-${{ github.run_number }}.apk"
+          gh release create "build-${{ github.run_number }}" "MNX-DataForge-${{ github.run_number }}.apk" \
+            --title "Build ${{ github.run_number }}" \
+            --notes "$(git log -1 --pretty=%s)" --latest

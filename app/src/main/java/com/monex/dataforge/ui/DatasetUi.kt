@@ -47,6 +47,7 @@ import com.monex.dataforge.ops.leakageCheck
 import com.monex.dataforge.ops.planSplit
 import com.monex.dataforge.ops.validateDataset
 import org.json.JSONArray
+import androidx.compose.animation.togetherWith
 import org.json.JSONObject
 
 private val TABS = listOf(
@@ -54,28 +55,9 @@ private val TABS = listOf(
     "Import/Export" to "استيراد/تصدير", "Batch" to "دفعات", "Info" to "معلومات", "Find" to "بحث", "SQL" to "SQL"
 )
 
-fun previewOf(data: String): String {
-    try {
-        val o = JSONObject(data)
-        val m = o.optJSONArray("messages")
-        if (m != null) {
-            for (i in 0 until m.length()) {
-                val mm = m.optJSONObject(i)
-                if (mm != null && mm.optString("role") == "user") return mm.optString("content").take(140)
-            }
-            return m.optJSONObject(0)?.optString("content")?.take(140) ?: ""
-        }
-        val sb = StringBuilder()
-        val it = o.keys()
-        while (it.hasNext() && sb.length < 140) {
-            val v = o.opt(it.next())
-            if (v is String) sb.append(v).append(" · ")
-        }
-        return sb.toString().take(140)
-    } catch (e: Exception) {
-        return data.take(140)
-    }
-}
+/** Short list preview; computed by the Rust engine (falls back to raw text if the engine rejects it). */
+fun previewOf(data: String): String =
+    try { com.monex.dataforge.core.NativeCore.preview(data) } catch (e: Exception) { data.take(140) }
 
 @Composable
 fun DatasetScreen(st: AppState, id: String) {
@@ -92,7 +74,16 @@ fun DatasetScreen(st: AppState, id: String) {
             ChipRow { TABS.forEachIndexed { i, t -> Chip(if (st.lang == "ar") t.second else t.first, tab == i) { tab = i } } }
         }
         Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
-            when (tab) {
+            androidx.compose.animation.AnimatedContent(
+                targetState = tab,
+                transitionSpec = {
+                    val dir = if (targetState > initialState) 1 else -1
+                    (androidx.compose.animation.slideInHorizontally(androidx.compose.animation.core.tween(260)) { w -> dir * w / 6 } + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220))) togetherWith
+                        (androidx.compose.animation.slideOutHorizontally(androidx.compose.animation.core.tween(200)) { w -> -dir * w / 8 } + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)))
+                },
+                label = "tabs"
+            ) { tabNow ->
+            when (tabNow) {
                 0 -> RecordsTab(st, d)
                 1 -> QualityTab(st, d)
                 2 -> SplitsTab(st, d)
@@ -102,6 +93,7 @@ fun DatasetScreen(st: AppState, id: String) {
                 6 -> InfoTab(st, d)
                 7 -> FindTab(st, d)
                 else -> SqlTab(st, d)
+            }
             }
         }
     }
@@ -159,7 +151,7 @@ fun RecordsTab(st: AppState, ds: Dataset) {
         LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(rows, key = { it.id }) { r ->
                 val sel = r.id in selected
-                Glass(Modifier.fillMaxWidth().pressable { st.push(Screen.EditorS(ds.id, r.id)) }, strength = 0.55f, radius = 16.dp) {
+                Glass(Modifier.fillMaxWidth().animateItem().pressable { st.push(Screen.EditorS(ds.id, r.id)) }, strength = 0.55f, radius = 16.dp) {
                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Box(
                             Modifier.size(24.dp).pressable { selected = if (sel) selected - r.id else selected + r.id }
@@ -168,7 +160,7 @@ fun RecordsTab(st: AppState, ds: Dataset) {
                             contentAlignment = Alignment.Center
                         ) { if (sel) Icon(Ic.CHECK, androidx.compose.ui.graphics.Color.White, 16.dp) }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            T(previewOf(r.data).ifBlank { "(empty)" }, 14.sp, maxLines = 2)
+                            T(remember(r.id, r.data) { previewOf(r.data) }.ifBlank { "(empty)" }, 14.sp, maxLines = 2)
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Badge(r.origin, if (r.origin == "ai_generated") p.warn else p.accent)
                                 Badge(r.split, p.textDim)

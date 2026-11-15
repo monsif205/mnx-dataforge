@@ -11,4 +11,5 @@ pub mod script;
 pub mod split;
 pub mod stats;
 pub mod text;
+pub mod tools;
 pub mod validate;

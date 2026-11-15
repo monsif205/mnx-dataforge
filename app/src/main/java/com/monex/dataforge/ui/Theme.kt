@@ -1,6 +1,11 @@
 package com.monex.dataforge.ui
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -138,12 +143,14 @@ fun Glass(
     modifier: Modifier = Modifier,
     strength: Float = 0.5f,
     radius: Dp = 18.dp,
+    delay: Int = 0,
     content: @Composable BoxScope.() -> Unit
 ) {
     val p = LocalPalette.current
     val shape = RoundedCornerShape(radius)
     Box(
         modifier
+            .appear(delay)
             .clip(shape)
             .background(p.glassFill)
             .then(if (p.dark) Modifier else Modifier.border(0.5.dp, p.glassEdge, shape)),
@@ -159,6 +166,24 @@ fun Modifier.pressable(enabled: Boolean = true, onClick: () -> Unit): Modifier {
     return this
         .graphicsLayer { scaleX = s; scaleY = s }
         .clickable(interactionSource = src, indication = null, enabled = enabled, onClick = onClick)
+}
+
+/** Fade + rise on first composition (staggered with [delayMs]). No-op when "Reduce motion" is on. */
+@Composable
+fun Modifier.appear(delayMs: Int = 0): Modifier {
+    if (!LocalMotion.current) return this
+    val a = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { a.animateTo(1f, tween(320, delayMs, FastOutSlowInEasing)) }
+    return this.graphicsLayer { alpha = a.value; translationY = (1f - a.value) * 22.dp.toPx() }
+}
+
+/** Scale + fade pop used by dialogs and toasts. */
+@Composable
+fun Modifier.popIn(): Modifier {
+    if (!LocalMotion.current) return this
+    val a = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { a.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMedium)) }
+    return this.graphicsLayer { alpha = a.value.coerceIn(0f, 1f); val s = 0.88f + 0.12f * a.value; scaleX = s; scaleY = s }
 }
 
 // ------------------------------------------------------------------ text and controls
@@ -213,13 +238,15 @@ fun IconBtn(icon: Ic, onClick: () -> Unit, enabled: Boolean = true, tint: Color?
 fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
     val p = LocalPalette.current
     val shape = RoundedCornerShape(50)
+    val bg by animateColorAsState(if (selected) p.accent else if (p.dark) Color(0xFF2C2C2E) else Color(0x12000000), tween(220), label = "chipBg")
+    val fg by animateColorAsState(if (selected) Color.White else p.text, tween(220), label = "chipFg")
     Box(
         Modifier
             .pressable(true, onClick)
             .clip(shape)
-            .background(if (selected) p.accent else if (p.dark) Color(0xFF2C2C2E) else Color(0x12000000))
+            .background(bg)
             .padding(horizontal = 14.dp, vertical = 8.dp)
-    ) { T(text, 14.sp, FontWeight.Medium, if (selected) Color.White else p.text, maxLines = 1) }
+    ) { T(text, 14.sp, FontWeight.Medium, fg, maxLines = 1) }
 }
 
 @Composable
@@ -364,7 +391,7 @@ fun Dock(items: List<Triple<Ic, String, Boolean>>, onSelect: (Int) -> Unit, modi
                     contentAlignment = Alignment.Center
                 ) {
                     androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(ic, if (selected) p.accent else p.textDim, 24.dp)
+                        Box(Modifier.graphicsLayer { val s = 1f + 0.14f * a; scaleX = s; scaleY = s }) { Icon(ic, if (selected) p.accent else p.textDim, 24.dp) }
                         T(label, 10.sp, if (selected) FontWeight.SemiBold else FontWeight.Medium, if (selected) p.accent else p.textDim, maxLines = 1)
                     }
                 }

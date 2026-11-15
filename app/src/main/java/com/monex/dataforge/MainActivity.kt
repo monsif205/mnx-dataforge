@@ -6,6 +6,14 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import com.monex.dataforge.ui.popIn
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -77,17 +85,31 @@ fun App(st: AppState) {
         c.isAppearanceLightStatusBars = !dark
         c.isAppearanceLightNavigationBars = !dark
     }
+    LaunchedEffect(Unit) {
+        if (com.monex.dataforge.core.Logger.hadCrash()) {
+            com.monex.dataforge.core.Logger.clearCrashFlag()
+            st.toast(tr("The app closed unexpectedly last time. Open Settings → Logs to send the report.", "أُغلق التطبيق بشكل غير متوقع آخر مرة. افتح الإعدادات ← السجلات لإرسال التقرير."))
+        }
+    }
     AppTheme(dark, st.lang, !st.reduceMotion) {
         val bg = com.monex.dataforge.ui.LocalPalette.current.bgTop
         AppBackground {
             BackHandler(enabled = st.stack.isNotEmpty()) { st.pop() }
             BackdropHost(Modifier.fillMaxSize(), background = bg, content = {
                 val target: Any = st.stack.lastOrNull() ?: st.tab
+                var prevDepth by remember { mutableIntStateOf(0) }
+                val deeper = st.stack.size >= prevDepth
+                SideEffect { prevDepth = st.stack.size }
                 AnimatedContent(
                     targetState = target,
                     transitionSpec = {
                         if (st.reduceMotion) EnterTransition.None togetherWith ExitTransition.None
-                        else fadeIn(tween(200)) togetherWith fadeOut(tween(120))
+                        else if (initialState is Int && targetState is Int) fadeIn(tween(220)) togetherWith fadeOut(tween(140))
+                        else {
+                            val d = if (deeper) 1 else -1
+                            (slideInHorizontally(tween(320, easing = FastOutSlowInEasing)) { w -> d * w / 3 } + fadeIn(tween(260))) togetherWith
+                                (slideOutHorizontally(tween(260, easing = FastOutSlowInEasing)) { w -> -d * w / 5 } + fadeOut(tween(160)))
+                        }
                     },
                     modifier = Modifier.fillMaxSize(),
                     label = "screen"
@@ -96,6 +118,7 @@ fun App(st: AppState) {
                         is Screen.DatasetS -> DatasetScreen(st, t.id)
                         is Screen.EditorS -> RecordEditor(st, t.datasetId, t.recordId)
                         is Screen.WriteS -> WriteScreen(st, t.datasetId)
+                        Screen.LogsS -> com.monex.dataforge.ui.LogsScreen(st)
                         0 -> HomeScreen(st)
                         1 -> DataScreen(st)
                         2 -> BackupScreen(st)
@@ -119,7 +142,7 @@ fun App(st: AppState) {
                 st.message?.let { m ->
                     LaunchedEffect(m) { delay(4000); if (st.message == m) st.message = null }
                     Box(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = if (st.stack.isEmpty()) 100.dp else 24.dp)) {
-                        LiquidGlass(Modifier.fillMaxWidth().pressable { st.message = null }, radius = 20.dp) {
+                        LiquidGlass(Modifier.fillMaxWidth().popIn().pressable { st.message = null }, radius = 20.dp) {
                             Box(Modifier.padding(14.dp)) { T(m, 14.sp) }
                         }
                     }

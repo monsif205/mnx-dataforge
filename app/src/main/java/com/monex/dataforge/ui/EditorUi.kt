@@ -60,13 +60,13 @@ private fun editMsgs(doc: String, f: (MutableList<JSONObject>) -> Unit): String 
     val na = JSONArray()
     l.forEach { na.put(it) }
     root.put("messages", na)
-    return root.toString(2)
+    return com.monex.dataforge.core.NativeCore.pretty(root.toString())
 }
 
 private fun starterDoc(ds: Dataset): String =
     if (isConversationKind(ds.kind))
-        JSONObject("""{"messages":[{"role":"user","content":""},{"role":"assistant","content":""}]}""").toString(2)
-    else JSONObject(kindInfo(ds.kind).template.replace(Regex("\\{\\{\\w+\\}\\}"), "")).toString(2)
+        com.monex.dataforge.core.NativeCore.pretty("""{"messages":[{"role":"user","content":""},{"role":"assistant","content":""}]}""")
+    else com.monex.dataforge.core.NativeCore.pretty(kindInfo(ds.kind).template.replace(Regex("\\{\\{\\w+\\}\\}"), ""))
 
 @Composable
 fun RecordEditor(st: AppState, dsId: String, recId: String?) {
@@ -80,7 +80,7 @@ fun RecordEditor(st: AppState, dsId: String, recId: String?) {
 private fun EditorBody(st: AppState, ds: Dataset, rec: Rec?) {
     val p = LocalPalette.current
     val draftKey = "draft:${ds.id}:${rec?.id ?: "new"}"
-    val saved0 = remember(rec?.id) { rec?.let { runCatching { JSONObject(it.data).toString(2) }.getOrNull() } ?: starterDoc(ds) }
+    val saved0 = remember(rec?.id) { rec?.let { runCatching { com.monex.dataforge.core.NativeCore.pretty(it.data) }.getOrNull() } ?: starterDoc(ds) }
     val draft0 = remember(rec?.id) { st.prefs.getString(draftKey, null) }
     var savedDoc by remember(rec?.id) { mutableStateOf(saved0) }
     var doc by remember(rec?.id) { mutableStateOf(draft0 ?: saved0) }
@@ -209,7 +209,7 @@ private fun EditorBody(st: AppState, ds: Dataset, rec: Rec?) {
                                         T(h.detail, 11.sp, color = p.textDim)
                                     }
                                     if (h.hash != null) GButton(tr("Load", "تحميل"), {
-                                        st.work("…", { st.repo.blob(h.hash) }) { b -> if (b != null) doc = JSONObject(b).toString(2) }
+                                        st.work("…", { st.repo.blob(h.hash) }) { b -> if (b != null) doc = com.monex.dataforge.core.NativeCore.pretty(b) }
                                     })
                                 }
                             }

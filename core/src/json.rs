@@ -362,6 +362,51 @@ impl Value {
         o
     }
 
+    /// Human-readable form with `indent` spaces per level; Unicode is kept as-is.
+    pub fn to_pretty(&self, indent: usize) -> String {
+        let mut o = String::new();
+        self.write_pretty(&mut o, indent, 0);
+        o
+    }
+
+    fn write_pretty(&self, o: &mut String, ind: usize, depth: usize) {
+        let pad = |o: &mut String, d: usize| {
+            o.push('\n');
+            for _ in 0..d * ind {
+                o.push(' ');
+            }
+        };
+        match self {
+            Value::Arr(a) if !a.is_empty() => {
+                o.push('[');
+                for (i, v) in a.iter().enumerate() {
+                    if i > 0 {
+                        o.push(',');
+                    }
+                    pad(o, depth + 1);
+                    v.write_pretty(o, ind, depth + 1);
+                }
+                pad(o, depth);
+                o.push(']');
+            }
+            Value::Obj(items) if !items.is_empty() => {
+                o.push('{');
+                for (i, (k, v)) in items.iter().enumerate() {
+                    if i > 0 {
+                        o.push(',');
+                    }
+                    pad(o, depth + 1);
+                    escape_into(k, o);
+                    o.push_str(": ");
+                    v.write_pretty(o, ind, depth + 1);
+                }
+                pad(o, depth);
+                o.push('}');
+            }
+            other => other.write(o),
+        }
+    }
+
     pub fn write(&self, o: &mut String) {
         match self {
             Value::Null => o.push_str("null"),
@@ -407,6 +452,15 @@ mod tests {
         let again = parse(&v.to_json()).unwrap();
         assert_eq!(v, again);
         assert!(v.to_json().contains("الرباط"), "Arabic must not be escaped");
+    }
+
+    #[test]
+    fn pretty_roundtrip() {
+        let v = parse(r#"{"a":[1,{"b":"سلام"}],"c":{},"d":[]}"#).unwrap();
+        let p = v.to_pretty(2);
+        assert!(p.contains("\n  \"a\": [\n    1,"));
+        assert!(p.contains("\"c\": {}") && p.contains("\"d\": []"));
+        assert_eq!(parse(&p).unwrap(), v);
     }
 
     #[test]
