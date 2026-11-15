@@ -28,9 +28,11 @@ android {
         if (ks != null && File(ks).exists()) {
             create("release") {
                 storeFile = File(ks)
-                storePassword = System.getenv("KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("KEY_ALIAS") ?: "mnx"
-                keyPassword = System.getenv("KEYSTORE_PASSWORD")
+                // trim(): a pasted secret often carries a trailing newline or space.
+                val pw = System.getenv("KEYSTORE_PASSWORD")?.trim()
+                storePassword = pw
+                keyAlias = (System.getenv("KEY_ALIAS") ?: "mnx").trim()
+                keyPassword = pw
             }
         }
     }
