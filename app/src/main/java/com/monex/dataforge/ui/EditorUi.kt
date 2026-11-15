@@ -49,19 +49,14 @@ class UndoStack(initial: String) {
 
 private val ROLES = listOf("system", "user", "assistant", "tool")
 
-private fun copyObj(o: JSONObject) = JSONObject(o.toString())
-
-private fun editMsgs(doc: String, f: (MutableList<JSONObject>) -> Unit): String {
-    val root = JSONObject(doc)
-    val arr = root.optJSONArray("messages") ?: JSONArray()
-    val l = ArrayList<JSONObject>()
-    for (i in 0 until arr.length()) l.add(arr.optJSONObject(i) ?: JSONObject())
-    f(l)
-    val na = JSONArray()
-    l.forEach { na.put(it) }
-    root.put("messages", na)
-    return com.monex.dataforge.core.NativeCore.pretty(root.toString())
-}
+/** All structural message edits run in the Rust engine (op "msg_edit"). Returns the original doc if the engine rejects the edit. */
+private fun msgOp(doc: String, action: String, index: Int = -1, extra: JSONObject.() -> Unit = {}): String =
+    runCatching {
+        val q = JSONObject().put("doc", doc).put("action", action)
+        if (index >= 0) q.put("index", index)
+        q.extra()
+        com.monex.dataforge.core.NativeCore.run("msg_edit", q).getString("doc")
+    }.getOrDefault(doc)
 
 private fun starterDoc(ds: Dataset): String =
     if (isConversationKind(ds.kind))
@@ -237,7 +232,7 @@ private fun ConversationBody(doc: String, onDoc: (String) -> Unit, locked: Boole
     }
     if (msgs == null) {
         T(tr("This record has no \"messages\" array. Switch to JSON to fix it, or add a message below.", "هذا السجل بلا مصفوفة \"messages\". انتقل إلى JSON لإصلاحه أو أضف رسالة."), 13.sp, color = p.warn)
-        if (!locked) GButton(tr("Create messages array", "إنشاء مصفوفة الرسائل"), { onDoc(runCatching { editMsgs(doc) {} }.getOrDefault(doc)) })
+        if (!locked) GButton(tr("Create messages array", "إنشاء مصفوفة الرسائل"), { onDoc(msgOp(doc, "ensure")) })
         return
     }
     msgs.forEachIndexed { i, m ->
@@ -246,38 +241,26 @@ private fun ConversationBody(doc: String, onDoc: (String) -> Unit, locked: Boole
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 ChipRow {
                     (ROLES + listOfNotNull(role.takeIf { it.isNotEmpty() && it !in ROLES })).forEach { r ->
-                        Chip(r, role == r) { if (!locked) onDoc(editMsgs(doc) { l -> l[i] = copyObj(l[i]).put("role", r) }) }
+                        Chip(r, role == r) { if (!locked) onDoc(msgOp(doc, "role", i) { put("role", r) }) }
                     }
                 }
-                Field(m.optString("content"), { nc -> onDoc(editMsgs(doc) { l -> l[i] = copyObj(l[i]).put("content", nc) }) }, Modifier.fillMaxWidth(), hint = tr("Message ${i + 1}", "الرسالة ${i + 1}"), minHeight = 70.dp, enabled = !locked)
+                Field(m.optString("content"), { nc -> onDoc(msgOp(doc, "content", i) { put("content", nc) }) }, Modifier.fillMaxWidth(), hint = tr("Message ${i + 1}", "الرسالة ${i + 1}"), minHeight = 70.dp, enabled = !locked)
                 if (m.has("tool_calls") || m.has("metadata") || m.has("annotations")) T(tr("Has extra fields (edit them in JSON view).", "فيها حقول إضافية (حررها في عرض JSON)."), 11.sp, color = p.textDim)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    IconBtn(Ic.UP, { onDoc(editMsgs(doc) { l -> if (i > 0) { val t = l[i]; l[i] = l[i - 1]; l[i - 1] = t } }) }, enabled = i > 0 && !locked)
-                    IconBtn(Ic.DOWN, { onDoc(editMsgs(doc) { l -> if (i < l.size - 1) { val t = l[i]; l[i] = l[i + 1]; l[i + 1] = t } }) }, enabled = i < msgs.size - 1 && !locked)
-                    IconBtn(Ic.COPY, { onDoc(editMsgs(doc) { l -> l.add(i + 1, copyObj(l[i])) }) }, enabled = !locked)
-                    IconBtn(Ic.SCISSORS, {
-                        onDoc(editMsgs(doc) { l ->
-                            val parts = l[i].optString("content").split(Regex("\n\\s*\n")).filter { it.isNotBlank() }
-                            if (parts.size > 1) {
-                                val base = l[i]; l.removeAt(i)
-                                parts.forEachIndexed { k, part -> l.add(i + k, copyObj(base).put("content", part.trim())) }
-                            }
-                        })
-                    }, enabled = !locked && m.optString("content").contains(Regex("\n\\s*\n")))
-                    IconBtn(Ic.MERGE, {
-                        onDoc(editMsgs(doc) { l ->
-                            if (i < l.size - 1) {
-                                val merged = copyObj(l[i]).put("content", l[i].optString("content") + "\n\n" + l[i + 1].optString("content"))
-                                l[i] = merged; l.removeAt(i + 1)
-                            }
-                        })
-                    }, enabled = i < msgs.size - 1 && !locked)
-                    IconBtn(Ic.TRASH, { onDoc(editMsgs(doc) { l -> l.removeAt(i) }) }, enabled = !locked, tint = p.danger)
+                    IconBtn(Ic.UP, { onDoc(msgOp(doc, "up", i)) }, enabled = i > 0 && !locked)
+                    IconBtn(Ic.DOWN, { onDoc(msgOp(doc, "down", i)) }, enabled = i < msgs.size - 1 && !locked)
+                    IconBtn(Ic.COPY, { onDoc(msgOp(doc, "dup", i)) }, enabled = !locked)
+                    IconBtn(Ic.SCISSORS, { onDoc(msgOp(doc, "split", i)) }, enabled = !locked && m.optString("content").contains(Regex("\n\\s*\n")))
+                    IconBtn(Ic.MERGE, { onDoc(msgOp(doc, "merge", i)) }, enabled = i < msgs.size - 1 && !locked)
+                    IconBtn(Ic.TRASH, { onDoc(msgOp(doc, "delete", i)) }, enabled = !locked, tint = p.danger)
                 }
             }
         }
     }
     if (!locked) ChipRow {
-        ROLES.forEach { r -> Chip("+ $r", false) { onDoc(editMsgs(doc) { l -> l.add(JSONObject().put("role", r).put("content", "")) }) } }
+        Chip(tr("+ turn", "+ دور"), true) { onDoc(msgOp(doc, "turns") { put("count", 1) }) }
+        Chip(tr("+ 5 turns", "+ 5 أدوار"), false) { onDoc(msgOp(doc, "turns") { put("count", 5) }) }
+        Chip(tr("+ 10 turns", "+ 10 أدوار"), false) { onDoc(msgOp(doc, "turns") { put("count", 10) }) }
+        ROLES.forEach { r -> Chip("+ $r", false) { onDoc(msgOp(doc, "add") { put("role", r) }) } }
     }
 }

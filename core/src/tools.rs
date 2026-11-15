@@ -156,6 +156,284 @@ pub fn enter(v: &Value) -> Result<Value, String> {
     ]))
 }
 
+// ---------------------------------------------------------------- message editing
+
+fn sget<'a>(o: &'a Value, k: &str) -> Option<&'a str> {
+    o.get(k).and_then(|x| x.as_str())
+}
+
+fn set_key(obj: &mut Value, key: &str, val: Value) {
+    if let Value::Obj(items) = obj {
+        if let Some(p) = items.iter().position(|(k, _)| k == key) {
+            items[p].1 = val;
+        } else {
+            items.push((key.to_string(), val));
+        }
+    } else {
+        *obj = Value::Obj(vec![(key.to_string(), val)]);
+    }
+}
+
+fn messages_mut(root: &mut Value, create: bool) -> Result<&mut Vec<Value>, String> {
+    let items = match root {
+        Value::Obj(i) => i,
+        _ => return Err("record is not a JSON object".into()),
+    };
+    let pos = match items.iter().position(|(k, _)| k == "messages") {
+        Some(p) => p,
+        None => {
+            if !create {
+                return Err("record has no messages array".into());
+            }
+            items.push(("messages".to_string(), Value::Arr(Vec::new())));
+            items.len() - 1
+        }
+    };
+    match &mut items[pos].1 {
+        Value::Arr(a) => Ok(a),
+        _ => Err("messages is not an array".into()),
+    }
+}
+
+fn split_paragraphs(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur: Vec<&str> = Vec::new();
+    for line in s.lines() {
+        if line.trim().is_empty() {
+            if !cur.is_empty() {
+                out.push(cur.join("\n").trim().to_string());
+                cur.clear();
+            }
+        } else {
+            cur.push(line);
+        }
+    }
+    if !cur.is_empty() {
+        out.push(cur.join("\n").trim().to_string());
+    }
+    out
+}
+
+/// op "msg_edit": structural edits of a conversation record (all the message buttons of the editor).
+/// actions: ensure, role, content, up, down, dup, split, merge, delete, add, turns.
+pub fn msg_edit(v: &Value) -> Result<Value, String> {
+    let doc = s_of(v, "doc")?;
+    let action = s_of(v, "action")?;
+    let idx = v.get("index").and_then(|x| x.as_f64()).map(|f| f.max(0.0) as usize);
+    let mut root = parse(doc).map_err(|e| e.to_string())?;
+    let create = matches!(action, "ensure" | "add" | "turns");
+    {
+        let msgs = messages_mut(&mut root, create)?;
+        let need = |msgs: &Vec<Value>| -> Result<usize, String> {
+            let i = idx.ok_or("missing 'index'")?;
+            if i >= msgs.len() {
+                Err(format!("index {} is out of range ({} messages)", i, msgs.len()))
+            } else {
+                Ok(i)
+            }
+        };
+        match action {
+            "ensure" => {}
+            "role" => {
+                let i = need(msgs)?;
+                set_key(&mut msgs[i], "role", Value::str(s_of(v, "role")?));
+            }
+            "content" => {
+                let i = need(msgs)?;
+                set_key(&mut msgs[i], "content", Value::str(s_of(v, "content")?));
+            }
+            "up" => {
+                let i = need(msgs)?;
+                if i > 0 {
+                    msgs.swap(i, i - 1);
+                }
+            }
+            "down" => {
+                let i = need(msgs)?;
+                if i + 1 < msgs.len() {
+                    msgs.swap(i, i + 1);
+                }
+            }
+            "dup" => {
+                let i = need(msgs)?;
+                let c = msgs[i].clone();
+                msgs.insert(i + 1, c);
+            }
+            "delete" => {
+                let i = need(msgs)?;
+                msgs.remove(i);
+            }
+            "split" => {
+                let i = need(msgs)?;
+                let parts = split_paragraphs(sget(&msgs[i], "content").unwrap_or(""));
+                if parts.len() > 1 {
+                    let base = msgs.remove(i);
+                    for (k, part) in parts.into_iter().enumerate() {
+                        let mut m = base.clone();
+                        set_key(&mut m, "content", Value::str(part));
+                        msgs.insert(i + k, m);
+                    }
+                }
+            }
+            "merge" => {
+                let i = need(msgs)?;
+                if i + 1 < msgs.len() {
+                    let joined = format!("{}\n\n{}", sget(&msgs[i], "content").unwrap_or(""), sget(&msgs[i + 1], "content").unwrap_or(""));
+                    set_key(&mut msgs[i], "content", Value::str(joined));
+                    msgs.remove(i + 1);
+                }
+            }
+            "add" => {
+                let role = sget(v, "role").unwrap_or("user");
+                let content = sget(v, "content").unwrap_or("");
+                msgs.push(Value::obj(vec![("role", Value::str(role)), ("content", Value::str(content))]));
+            }
+            "turns" => {
+                let n = v.get("count").and_then(|x| x.as_f64()).unwrap_or(1.0).clamp(1.0, 50.0) as usize;
+                for _ in 0..n {
+                    msgs.push(Value::obj(vec![("role", Value::str("user")), ("content", Value::str(""))]));
+                    msgs.push(Value::obj(vec![("role", Value::str("assistant")), ("content", Value::str(""))]));
+                }
+            }
+            other => return Err(format!("unknown action '{}'", other)),
+        }
+    }
+    Ok(Value::obj(vec![("doc", Value::str(root.to_pretty(2)))]))
+}
+
+// ---------------------------------------------------------------- adapt (import formats -> messages)
+
+fn adapt_one(o: &Value) -> Option<(Value, bool)> {
+    if o.get("messages").is_some() {
+        return Some((o.clone(), false));
+    }
+    if let Some(conv) = o.get("conversations") {
+        let arr = conv.as_arr()?;
+        let mut msgs = Vec::new();
+        for m in arr {
+            let role = match sget(m, "from")? {
+                "human" | "user" => "user",
+                "gpt" | "assistant" | "model" => "assistant",
+                "system" => "system",
+                "tool" | "function" => "tool",
+                _ => return None,
+            };
+            msgs.push(Value::obj(vec![("role", Value::str(role)), ("content", Value::str(sget(m, "value").unwrap_or("")))]));
+        }
+        return Some((Value::obj(vec![("messages", Value::Arr(msgs))]), true));
+    }
+    let user = if let Some(ins) = sget(o, "instruction") {
+        match sget(o, "input") {
+            Some(inp) if !inp.trim().is_empty() => format!("{}\n\n{}", ins, inp),
+            _ => ins.to_string(),
+        }
+    } else {
+        sget(o, "prompt")?.to_string()
+    };
+    let answer = sget(o, "output").or_else(|| sget(o, "completion")).or_else(|| sget(o, "response"))?;
+    let mut msgs = Vec::new();
+    if let Some(sys) = sget(o, "system") {
+        if !sys.trim().is_empty() {
+            msgs.push(Value::obj(vec![("role", Value::str("system")), ("content", Value::str(sys))]));
+        }
+    }
+    msgs.push(Value::obj(vec![("role", Value::str("user")), ("content", Value::str(user))]));
+    msgs.push(Value::obj(vec![("role", Value::str("assistant")), ("content", Value::str(answer))]));
+    Some((Value::obj(vec![("messages", Value::Arr(msgs))]), true))
+}
+
+/// op "adapt": converts ShareGPT / Alpaca / prompt-completion records to {"messages": [...]}.
+/// Result arrays are index-aligned with the input: `records[i]` is null when record i could not be converted.
+pub fn adapt(v: &Value) -> Result<Value, String> {
+    let recs = v.get("records").and_then(|r| r.as_arr()).ok_or("missing array field 'records'")?;
+    let mut out = Vec::with_capacity(recs.len());
+    let mut changed = Vec::with_capacity(recs.len());
+    for r in recs {
+        match adapt_one(r) {
+            Some((x, c)) => {
+                out.push(x);
+                changed.push(Value::Bool(c));
+            }
+            None => {
+                out.push(Value::Null);
+                changed.push(Value::Bool(false));
+            }
+        }
+    }
+    Ok(Value::obj(vec![("records", Value::Arr(out)), ("changed", Value::Arr(changed))]))
+}
+
+// ---------------------------------------------------------------- template expansion
+
+/// op "expand": every combination of the listed variable values is substituted into a JSON template.
+pub fn expand(v: &Value) -> Result<Value, String> {
+    let template = s_of(v, "template")?;
+    let limit = v.get("limit").and_then(|x| x.as_f64()).unwrap_or(100.0).clamp(1.0, 5000.0) as usize;
+    let vars: Vec<(String, Vec<String>)> = match v.get("vars") {
+        Some(Value::Obj(items)) => items
+            .iter()
+            .map(|(k, val)| (k.clone(), val.as_arr().map(|a| a.iter().filter_map(|s| s.as_str().map(|t| t.to_string())).collect()).unwrap_or_default()))
+            .collect(),
+        _ => Vec::new(),
+    };
+    let mut problems: Vec<String> = Vec::new();
+    let mut records: Vec<Value> = Vec::new();
+    let mut combos: u64 = 1;
+    for (_, vals) in &vars {
+        combos = combos.saturating_mul(vals.len().max(1) as u64);
+    }
+    if combos > 1_000_000 {
+        problems.push(format!("too many combinations ({}); reduce variable values", combos));
+        return Ok(Value::obj(vec![("records", Value::Arr(records)), ("problems", Value::Arr(problems.into_iter().map(Value::str).collect()))]));
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut idx = vec![0usize; vars.len()];
+    let mut produced: u64 = 0;
+    while produced < combos && records.len() < limit {
+        let mut t = template.to_string();
+        for (i, (name, vals)) in vars.iter().enumerate() {
+            let raw = vals.get(idx[i]).map(|s| s.as_str()).unwrap_or("");
+            let mut q = String::new();
+            crate::json::escape_into(raw, &mut q);
+            let inner = &q[1..q.len() - 1];
+            t = t.replace(&format!("{{{{{}}}}}", name), inner);
+        }
+        produced += 1;
+        match parse(&t) {
+            Ok(o) => {
+                if seen.insert(o.to_json()) {
+                    records.push(o);
+                }
+            }
+            Err(e) => {
+                if problems.len() < 5 {
+                    problems.push(format!("combination {} is not valid JSON: {}", produced, e));
+                }
+            }
+        }
+        let mut k = vars.len();
+        loop {
+            if k == 0 {
+                k = usize::MAX;
+                break;
+            }
+            k -= 1;
+            idx[k] += 1;
+            if idx[k] < vars[k].1.len() {
+                break;
+            }
+            idx[k] = 0;
+        }
+        if k == usize::MAX {
+            break;
+        }
+    }
+    if records.len() >= limit && produced < combos {
+        problems.push(format!("limited to {} records (of {} combinations)", limit, combos));
+    }
+    Ok(Value::obj(vec![("records", Value::Arr(records)), ("problems", Value::Arr(problems.into_iter().map(Value::str).collect()))]))
+}
+
 // ---------------------------------------------------------------- updater
 
 /// op "release_info": parse GitHub's "latest release" JSON. Tag format `build-<N>` (N = versionCode);
@@ -235,6 +513,55 @@ mod tests {
         let go = |before: &str| enter(&Value::obj(vec![("before", Value::str(before)), ("mode", Value::str("fields")), ("fields", f.clone())])).unwrap();
         assert_eq!(go("question: q").get("insert").unwrap().as_str().unwrap(), "answer: ");
         assert_eq!(go("question: q\nanswer: a").get("insert").unwrap().as_str().unwrap(), "question: ");
+    }
+
+    #[test]
+    fn msg_edit_actions() {
+        let ed = |doc: &str, rest: &str| msg_edit(&parse(&format!("{{\"doc\":{},{}}}", Value::str(doc).to_json(), rest)).unwrap());
+        let base = r#"{"messages":[{"role":"user","content":"a"},{"role":"assistant","content":"b\n\nc"}],"x":1}"#;
+        let msgs = |r: Result<Value, String>| parse(r.unwrap().get("doc").unwrap().as_str().unwrap()).unwrap().get("messages").unwrap().as_arr().unwrap().clone();
+        assert_eq!(msgs(ed(base, r#""action":"turns","count":2"#)).len(), 6);
+        assert_eq!(msgs(ed(base, r#""action":"split","index":1"#)).len(), 3);
+        assert_eq!(msgs(ed(base, r#""action":"dup","index":0"#)).len(), 3);
+        assert_eq!(msgs(ed(base, r#""action":"delete","index":0"#)).len(), 1);
+        let up = msgs(ed(base, r#""action":"up","index":1"#));
+        assert_eq!(up[0].get("role").unwrap().as_str().unwrap(), "assistant");
+        let merged = msgs(ed(base, r#""action":"merge","index":0"#));
+        assert_eq!(merged[0].get("content").unwrap().as_str().unwrap(), "a\n\nb\n\nc");
+        let role = msgs(ed(base, r#""action":"role","index":0,"role":"system""#));
+        assert_eq!(role[0].get("role").unwrap().as_str().unwrap(), "system");
+        assert!(ed(base, r#""action":"delete","index":9"#).is_err());
+        assert!(ed("{\"q\":1}", r#""action":"delete","index":0"#).is_err());
+        assert_eq!(msgs(ed("{\"q\":1}", r#""action":"add","role":"user""#)).len(), 1);
+        // extra fields survive
+        let r = ed(base, r#""action":"dup","index":0"#).unwrap();
+        assert!(r.get("doc").unwrap().as_str().unwrap().contains("\"x\": 1"));
+    }
+
+    #[test]
+    fn adapt_formats() {
+        let r = adapt(&o(r#"{"records":[{"instruction":"i","input":"x","output":"o","system":"s"},{"conversations":[{"from":"human","value":"h"},{"from":"gpt","value":"g"}]},{"messages":[]},{"foo":1}]}"#)).unwrap();
+        let recs = r.get("records").unwrap().as_arr().unwrap();
+        assert_eq!(recs[0].get("messages").unwrap().as_arr().unwrap().len(), 3);
+        assert_eq!(recs[0].get("messages").unwrap().as_arr().unwrap()[1].get("content").unwrap().as_str().unwrap(), "i\n\nx");
+        assert_eq!(recs[1].get("messages").unwrap().as_arr().unwrap()[1].get("role").unwrap().as_str().unwrap(), "assistant");
+        assert_eq!(recs[3], Value::Null);
+        let ch = r.get("changed").unwrap().as_arr().unwrap();
+        assert_eq!(ch[2].as_bool(), Some(false));
+        assert_eq!(ch[0].as_bool(), Some(true));
+    }
+
+    #[test]
+    fn expand_templates() {
+        let r = expand(&o(r#"{"template":"{\"q\":\"{{a}}\",\"n\":\"{{b}}\"}","vars":{"a":["x","y\"z"],"b":["1","2","3"]},"limit":100}"#)).unwrap();
+        assert_eq!(r.get("records").unwrap().as_arr().unwrap().len(), 6);
+        let r = expand(&o(r#"{"template":"{\"q\":\"{{a}}\"}","vars":{"a":["x","x"]}}"#)).unwrap();
+        assert_eq!(r.get("records").unwrap().as_arr().unwrap().len(), 1);
+        let r = expand(&o(r#"{"template":"{\"q\":\"{{a}}\"}","vars":{"a":["1","2","3","4"]},"limit":2}"#)).unwrap();
+        assert_eq!(r.get("records").unwrap().as_arr().unwrap().len(), 2);
+        assert_eq!(r.get("problems").unwrap().as_arr().unwrap().len(), 1);
+        let r = expand(&o(r#"{"template":"{\"q\":1}","vars":{}}"#)).unwrap();
+        assert_eq!(r.get("records").unwrap().as_arr().unwrap().len(), 1);
     }
 
     #[test]

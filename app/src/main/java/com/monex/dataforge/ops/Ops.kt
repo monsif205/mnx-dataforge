@@ -15,6 +15,8 @@ import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import java.security.DigestOutputStream
 import java.security.MessageDigest
 
@@ -38,41 +40,12 @@ fun datasetValidationKind(kind: String): String = when (kind) {
 
 data class ImportResult(val imported: Int, val rejected: Int, val errors: List<String>, val cancelled: Boolean)
 
-/** Maps common formats (ShareGPT, Alpaca, prompt/completion) to {"messages":[...]}. Returns null if not convertible. */
-fun adaptToConversation(o: JSONObject): JSONObject? {
-    if (o.has("messages")) return o
-    if (o.has("conversations")) {
-        val conv = o.optJSONArray("conversations") ?: return null
-        val msgs = JSONArray()
-        for (i in 0 until conv.length()) {
-            val m = conv.optJSONObject(i) ?: return null
-            val role = when (m.optString("from")) {
-                "human", "user" -> "user"
-                "gpt", "assistant", "model" -> "assistant"
-                "system" -> "system"
-                "tool", "function" -> "tool"
-                else -> return null
-            }
-            msgs.put(JSONObject().put("role", role).put("content", m.optString("value")))
-        }
-        return JSONObject().put("messages", msgs)
-    }
-    val user = when {
-        o.has("instruction") -> o.optString("instruction") + (o.optString("input").takeIf { it.isNotBlank() }?.let { "\n\n$it" } ?: "")
-        o.has("prompt") -> o.optString("prompt")
-        else -> return null
-    }
-    val answer = when {
-        o.has("output") -> o.optString("output")
-        o.has("completion") -> o.optString("completion")
-        o.has("response") -> o.optString("response")
-        else -> return null
-    }
-    val msgs = JSONArray()
-    if (o.has("system") && o.optString("system").isNotBlank()) msgs.put(JSONObject().put("role", "system").put("content", o.optString("system")))
-    msgs.put(JSONObject().put("role", "user").put("content", user))
-    msgs.put(JSONObject().put("role", "assistant").put("content", answer))
-    return JSONObject().put("messages", msgs)
+/** Maps ShareGPT / Alpaca / prompt-completion records to {"messages":[...]} in the Rust engine. Null entries could not be converted. */
+fun adaptBatch(batch: List<JSONObject>): List<Pair<JSONObject?, Boolean>> {
+    val arr = JSONArray(); batch.forEach { arr.put(it) }
+    val res = NativeCore.run("adapt", JSONObject().put("records", arr))
+    val recs = res.getJSONArray("records"); val ch = res.getJSONArray("changed")
+    return batch.indices.map { recs.optJSONObject(it) to ch.optBoolean(it) }
 }
 
 fun importFile(
@@ -88,15 +61,13 @@ fun importFile(
 
     fun accept(batch: List<JSONObject>) {
         val items = ArrayList<NewRec>()
-        for (o in batch) {
-            if (ds.kind == "conversation") {
-                val adapted = adaptToConversation(o)
+        if (ds.kind == "conversation") {
+            for ((adapted, changed) in adaptBatch(batch)) {
                 if (adapted == null) { err("record has no messages and is not a known conversation format"); continue }
-                val changed = adapted !== o
                 items.add(NewRec(adapted, if (changed) "transformed" else "imported", name, license))
-            } else {
-                items.add(NewRec(o, "imported", name, license))
             }
+        } else {
+            for (o in batch) items.add(NewRec(o, "imported", name, license))
         }
         if (items.isNotEmpty()) { repo.insertRecords(ds.id, items, history = false); imported += items.size }
     }
@@ -141,7 +112,7 @@ fun importFile(
                 if (!wasCancelled) flush()
             }
         }
-        lower.endsWith(".json") || lower.endsWith(".csv") || lower.endsWith(".tsv") || lower.endsWith(".txt") -> {
+        lower.endsWith(".json") || lower.endsWith(".csv") || lower.endsWith(".tsv") || lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".markdown") -> {
             val size = ctx.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: 0L
             if (size > MAX_TEXT_IMPORT_BYTES) throw IllegalStateException("$name is larger than 64 MB. Convert it to JSONL, which is imported as a stream.")
             val text = ctx.contentResolver.openInputStream(uri)!!.use { it.readBytes().toString(Charsets.UTF_8) }
@@ -155,7 +126,19 @@ fun importFile(
                     res.optJSONArray("errors")?.let { e -> for (i in 0 until e.length()) err("line ${e.getJSONObject(i).getInt("line")}: ${e.getJSONObject(i).getString("message")}") }
                     objectsOnly(res.getJSONArray("records")) { "row $it" }
                 }
-                else -> text.lines().filter { it.isNotBlank() }.map { JSONObject().put("text", it) }
+                else -> {
+                    val isMd = lower.endsWith(".md") || lower.endsWith(".markdown")
+                    val q = JSONObject().put("text", text)
+                    when {
+                        ds.kind == "conversation" -> q.put("mode", "conversation")
+                        ds.required.isNotEmpty() && ds.required.none { it == "text" } && ds.required.size > 1 && !ds.required.any { it.contains('.') } ->
+                            q.put("mode", "fields").put("fields", JSONArray(ds.required))
+                        else -> q.put("mode", "plain").put("split", if (isMd) "paragraphs" else "lines")
+                    }
+                    val res = NativeCore.run("text_records", q)
+                    res.optJSONArray("warnings")?.let { w -> for (k in 0 until w.length()) err(w.getString(k)) }
+                    objectsOnly(res.getJSONArray("records")) { "block $it" }
+                }
             }
             var i = 0
             while (i < records.size) {
@@ -165,7 +148,7 @@ fun importFile(
                 if (cancelled()) { wasCancelled = true; break }
             }
         }
-        else -> throw IllegalStateException("Unsupported file type: $name (use .jsonl, .json, .csv, .tsv or .txt)")
+        else -> throw IllegalStateException("Unsupported file type: $name (use .jsonl, .json, .csv, .tsv, .txt or .md)")
     }
     repo.logImport(ds.id, name, license, imported, rejected)
     return ImportResult(imported, rejected, errors, wasCancelled)
@@ -480,37 +463,51 @@ fun leakageCheck(repo: Repo, ds: Dataset, threshold: Double): JSONObject {
 
 /** Cartesian expansion of {{var}} placeholders into JSON records, with preview/limit and duplicate prevention. */
 fun expandTemplate(template: String, vars: Map<String, List<String>>, limit: Int): Pair<List<JSONObject>, List<String>> {
-    val names = vars.keys.toList()
-    val problems = ArrayList<String>()
-    val out = ArrayList<JSONObject>()
-    val seen = HashSet<String>()
-    var combos = 1L
-    names.forEach { combos *= vars[it]!!.size.coerceAtLeast(1) }
-    if (combos > 1_000_000) { problems.add("too many combinations ($combos); reduce variable values"); return out to problems }
-    val idx = IntArray(names.size)
-    var produced = 0L
-    while (produced < combos && out.size < limit) {
-        var t = template
-        names.forEachIndexed { i, n ->
-            val v = vars[n]!!.getOrElse(idx[i]) { "" }
-            t = t.replace("{{${n}}}", JSONObject.quote(v).let { it.substring(1, it.length - 1) })
+    val v = JSONObject()
+    vars.forEach { (k, list) -> v.put(k, JSONArray(list)) }
+    val res = NativeCore.run("expand", JSONObject().put("template", template).put("vars", v).put("limit", limit))
+    val recs = res.getJSONArray("records"); val pr = res.getJSONArray("problems")
+    return (0 until recs.length()).map { recs.getJSONObject(it) } to (0 until pr.length()).map { pr.getString(it) }
+}
+
+// ---------------------------------------------------------------- project export (ZIP)
+
+private fun safeName(s: String): String = s.replace(Regex("[^\\p{L}\\p{N}._-]+"), "_").trim('_').ifEmpty { "dataset" }.take(60)
+
+/** Writes a ZIP with one .jsonl per dataset (lines produced by the Rust engine) plus manifest.json. Returns (datasets, records). */
+fun exportProjectZip(
+    ctx: Context, uri: Uri, repo: Repo, projectName: String, datasets: List<Dataset>,
+    progress: (String) -> Unit
+): Pair<Int, Int> {
+    val out = ctx.contentResolver.openOutputStream(uri, "wt") ?: throw IllegalStateException("Cannot open the destination file")
+    var total = 0
+    val manifest = JSONArray()
+    ZipOutputStream(out.buffered(64 * 1024)).use { zip ->
+        val used = HashSet<String>()
+        datasets.forEach { ds ->
+            var fname = safeName(ds.name); var n = 2
+            while (!used.add(fname)) fname = safeName(ds.name) + "_" + n++
+            zip.putNextEntry(ZipEntry("$fname.jsonl"))
+            var count = 0
+            val buf = JSONArray()
+            fun flush() {
+                if (buf.length() == 0) return
+                val text = NativeCore.run("to_jsonl", JSONObject().put("records", buf)).getString("text")
+                zip.write(text.toByteArray(Charsets.UTF_8))
+                count += buf.length()
+                while (buf.length() > 0) buf.remove(buf.length() - 1)
+                progress("${ds.name}: $count")
+            }
+            repo.pageAll(ds.id) { r -> buf.put(JSONObject(r.data)); if (buf.length() >= 500) flush() }
+            flush()
+            zip.closeEntry()
+            total += count
+            manifest.put(JSONObject().put("file", "$fname.jsonl").put("name", ds.name).put("kind", ds.kind)
+                .put("language", ds.language).put("required", JSONArray(ds.required)).put("description", ds.description).put("records", count))
         }
-        produced++
-        try {
-            val o = JSONObject(t)
-            val key = sha256Hex(o.toString())
-            if (seen.add(key)) out.add(o)
-        } catch (e: Exception) {
-            if (problems.size < 5) problems.add("combination $produced is not valid JSON: ${e.message}")
-        }
-        var k = names.size - 1
-        while (k >= 0) {
-            idx[k]++
-            if (idx[k] < vars[names[k]]!!.size) break
-            idx[k] = 0; k--
-        }
-        if (k < 0) break
+        zip.putNextEntry(ZipEntry("manifest.json"))
+        zip.write(NativeCore.pretty(JSONObject().put("project", projectName).put("exported_at", System.currentTimeMillis()).put("datasets", manifest).toString()).toByteArray(Charsets.UTF_8))
+        zip.closeEntry()
     }
-    if (out.size >= limit && produced < combos) problems.add("limited to $limit records (of $combos combinations)")
-    return out to problems
+    return datasets.size to total
 }

@@ -1,0 +1,9 @@
+Phase 5 - editor turns, more Rust, import md/txt/json, project ZIP, license
+- Editor: unlimited messages ("+ turn", "+ 5 turns", "+ 10 turns", "+ role"). All edits go through Rust op msg_edit.
+- Rust: ops msg_edit, adapt (ShareGPT/Alpaca/prompt-completion), expand (templates), text_records (.txt/.md);
+  markdown-tolerant role labels in script.rs (bold, bullets, headings). 49 tests pass.
+- Kotlin logic removed: adaptToConversation, editMsgs, expandTemplate (now thin wrappers over Rust).
+- Import: .md/.markdown added; conversation datasets parse role labels, others split by paragraph (md) or line (txt).
+- Datasets: long-press menu (open, rename, duplicate, lock, delete). Project: Export ZIP (one .jsonl per dataset + manifest.json).
+- LICENSE.txt (view-only), README.txt rewritten.
+- Unverified: Kotlin compiles only in CI; runtime behaviour of long-press and ZIP not tried on a device.

@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.monex.dataforge.data.Dataset
+import com.monex.dataforge.ops.exportProjectZip
 import org.json.JSONObject
 import java.io.File
 
@@ -96,11 +97,19 @@ fun DataScreen(st: AppState) {
         list to list.associate { it.id to st.repo.count(it.id) }
     }
     var showCreate by remember { mutableStateOf(false) }
+    var menuDs by remember { mutableStateOf<Dataset?>(null) }
+    var renameDs by remember { mutableStateOf<Dataset?>(null) }
+    var deleteDs by remember { mutableStateOf<Dataset?>(null) }
     var newProject by remember { mutableStateOf(false) }
     var rename by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var confirmArchive by remember { mutableStateOf(false) }
     val project = st.projects.firstOrNull { it.id == st.projectId }
+    val zipSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri: Uri? ->
+        if (uri != null && project != null) st.work(tr("Exporting project", "تصدير المشروع"), {
+            exportProjectZip(st.ctx, uri, st.repo, project.name, data.first) { }
+        }) { (d, r) -> st.toast(tr("Exported $d datasets, $r records", "تم تصدير $d مجموعات، $r سجل")) }
+    }
 
     Page(tr("Datasets", "مجموعات البيانات"), actions = { GButton(tr("New", "جديد"), { showCreate = true }, icon = Ic.PLUS, accent = true) }) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -114,6 +123,7 @@ fun DataScreen(st: AppState) {
                 GButton(tr("Duplicate", "نسخ"), {
                     st.work(tr("Duplicating project", "نسخ المشروع"), { st.repo.duplicateProject(st.projectId) }) { np -> st.refreshProjects(); st.selectProject(np.id) }
                 })
+                GButton(tr("Export ZIP", "تصدير ZIP"), { zipSaver.launch(safeFileName(project?.name ?: "project") + ".zip") }, icon = Ic.SAVE)
                 GButton(tr("Archive", "أرشفة"), { confirmArchive = true })
                 GButton(tr("Delete", "حذف"), { confirmDelete = true }, danger = true)
             }
@@ -128,7 +138,7 @@ fun DataScreen(st: AppState) {
                 }
             }
             list.forEachIndexed { idx, ds ->
-                Glass(Modifier.fillMaxWidth().pressable { st.push(Screen.DatasetS(ds.id)) }, strength = 0.55f, delay = minOf(idx, 8) * 40) {
+                Glass(Modifier.fillMaxWidth().pressable(onLongClick = { menuDs = ds }) { st.push(Screen.DatasetS(ds.id)) }, strength = 0.55f, delay = minOf(idx, 8) * 40) {
                     Row(Modifier.padding(14.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             T(ds.name, 16.sp, FontWeight.SemiBold, maxLines = 1)
@@ -147,6 +157,35 @@ fun DataScreen(st: AppState) {
     }
 
     if (showCreate) CreateDatasetDialog(st) { showCreate = false }
+    menuDs?.let { ds ->
+        Modal({ menuDs = null }) {
+            T(ds.name, 18.sp, FontWeight.Bold, maxLines = 1)
+            GButton(tr("Open", "فتح"), { menuDs = null; st.push(Screen.DatasetS(ds.id)) }, Modifier.fillMaxWidth())
+            GButton(tr("Rename", "إعادة تسمية"), { menuDs = null; renameDs = ds }, Modifier.fillMaxWidth())
+            GButton(tr("Duplicate", "نسخ"), {
+                menuDs = null
+                st.work(tr("Duplicating dataset", "نسخ المجموعة"), { st.repo.duplicateDataset(ds.id) }) { st.bump() }
+            }, Modifier.fillMaxWidth())
+            GButton(if (ds.locked) tr("Unlock", "فك القفل") else tr("Lock", "قفل"), {
+                menuDs = null
+                st.work(tr("Updating", "تحديث"), { st.repo.setLocked(ds.id, !ds.locked) }) { st.bump() }
+            }, Modifier.fillMaxWidth())
+            GButton(tr("Delete", "حذف"), { menuDs = null; deleteDs = ds }, Modifier.fillMaxWidth(), danger = true)
+            GButton(tr("Close", "إغلاق"), { menuDs = null }, Modifier.fillMaxWidth())
+        }
+    }
+    renameDs?.let { ds ->
+        PromptDialog(tr("Rename dataset", "إعادة تسمية المجموعة"), ds.name, tr("Save", "حفظ"), { n ->
+            st.work(tr("Renaming", "إعادة التسمية"), { st.repo.updateDatasetMeta(ds.id, n, ds.description, ds.language, ds.required) }) { st.bump() }
+        }, { renameDs = null })
+    }
+    deleteDs?.let { ds ->
+        ConfirmDialog(tr("Delete dataset \"${ds.name}\"?", "حذف المجموعة \"${ds.name}\"؟"),
+            tr("Its records, versions and reports are permanently deleted.", "تحذف سجلاتها وإصداراتها وتقاريرها نهائيا."),
+            tr("Delete forever", "حذف نهائي"), true, {
+                st.work(tr("Deleting dataset", "حذف المجموعة"), { st.repo.deleteDataset(ds.id) }) { st.bump() }
+            }, { deleteDs = null })
+    }
     if (newProject) PromptDialog(tr("New project", "مشروع جديد"), "", tr("Create", "إنشاء"), { n ->
         st.work(tr("Creating project", "إنشاء المشروع"), { st.repo.createProject(n) }) { np -> st.refreshProjects(); st.selectProject(np.id) }
     }, { newProject = false })
@@ -304,3 +343,5 @@ fun SettingsScreen(st: AppState) {
         }
     }
 }
+
+private fun safeFileName(s: String): String = s.replace(Regex("[^\\p{L}\\p{N}._-]+"), "_").trim('_').ifEmpty { "project" }

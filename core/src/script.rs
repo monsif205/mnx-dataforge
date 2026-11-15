@@ -23,16 +23,60 @@ fn canon_role(label: &str, extra: &[String]) -> Option<String> {
     }
 }
 
-/// `label: rest` -> (label, rest). Labels have no spaces and are at most 32 bytes.
-fn split_label(line: &str) -> Option<(&str, &str)> {
-    let t = line.trim_start();
+/// Removes markdown decoration in front of a line: heading marks, quotes and bullets.
+fn strip_md_prefix(line: &str) -> &str {
+    let mut t = line.trim_start();
+    loop {
+        let before = t;
+        t = t.trim_start_matches('#').trim_start();
+        t = t.strip_prefix('>').unwrap_or(t).trim_start();
+        if let Some(r) = t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")) {
+            t = r.trim_start();
+        }
+        if t == before {
+            return t;
+        }
+    }
+}
+
+fn is_marker(c: char) -> bool {
+    c == '*' || c == '_' || c == '`'
+}
+
+/// `label: rest` -> (label, rest). Tolerates markdown such as `**User:** hi`, `**User**: hi`, `- User: hi`.
+/// Labels have no whitespace and are at most 32 bytes.
+fn split_label(line: &str) -> Option<(String, String)> {
+    let t = strip_md_prefix(line);
     let idx = t.find(':')?;
-    let label = &t[..idx];
+    let raw = &t[..idx];
+    let opener: String = raw.chars().take_while(|c| is_marker(*c)).collect();
+    let mut rest = &t[idx + 1..];
+    if !opener.is_empty() {
+        if let Some(r) = rest.strip_prefix(opener.as_str()) {
+            rest = r;
+        }
+    }
+    let label = raw.trim_matches(is_marker);
     if label.is_empty() || label.len() > 32 || label.contains(char::is_whitespace) {
         return None;
     }
-    let rest = &t[idx + 1..];
-    Some((label, rest.strip_prefix(' ').unwrap_or(rest)))
+    Some((label.to_string(), rest.strip_prefix(' ').unwrap_or(rest).to_string()))
+}
+
+/// A markdown heading or a fully bold line that is only a label: `## User`, `**Assistant**`.
+fn heading_label(line: &str) -> Option<String> {
+    let t = line.trim();
+    let is_heading = t.starts_with('#');
+    let is_bold = t.len() > 4 && (t.starts_with("**") && t.ends_with("**"));
+    if !is_heading && !is_bold {
+        return None;
+    }
+    let inner = strip_md_prefix(t).trim().trim_matches(is_marker).trim().trim_end_matches(':').trim();
+    if inner.is_empty() || inner.len() > 32 || inner.contains(char::is_whitespace) {
+        None
+    } else {
+        Some(inner.to_string())
+    }
 }
 
 fn is_sep(line: &str) -> bool {
@@ -62,10 +106,14 @@ pub fn parse_conversations(text: &str, extra: &[String]) -> (Vec<Pairs>, Vec<Str
             continue;
         }
         if let Some((label, rest)) = split_label(line) {
-            if let Some(role) = canon_role(label, extra) {
-                cur.push((role, rest.to_string()));
+            if let Some(role) = canon_role(&label, extra) {
+                cur.push((role, rest));
                 continue;
             }
+        }
+        if let Some(role) = heading_label(line).and_then(|h| canon_role(&h, extra)) {
+            cur.push((role, String::new()));
+            continue;
         }
         if let Some(last) = cur.last_mut() {
             last.1.push('\n');
@@ -94,7 +142,17 @@ pub fn parse_fields(text: &str, fields: &[String]) -> (Vec<Pairs>, Vec<String>) 
                 if starts_new {
                     finish(std::mem::take(&mut cur), &mut out);
                 }
-                cur.push((name.clone(), rest.to_string()));
+                cur.push((name.clone(), rest));
+                continue;
+            }
+        }
+        if let Some(h) = heading_label(line) {
+            if let Some(name) = fields.iter().find(|f| f.to_lowercase() == h.to_lowercase()) {
+                let starts_new = (fields.first() == Some(name) && !cur.is_empty()) || cur.iter().any(|(k, _)| k == name);
+                if starts_new {
+                    finish(std::mem::take(&mut cur), &mut out);
+                }
+                cur.push((name.clone(), String::new()));
                 continue;
             }
         }
@@ -155,6 +213,78 @@ pub fn build(v: &Value) -> Result<Value, String> {
         ("total_tokens", Value::int(total_tokens as i64)),
         ("messages", Value::int(messages as i64)),
     ]))
+}
+
+fn count_labels(text: &str, mode_fields: &[String], conversation: bool, extra: &[String]) -> usize {
+    text.lines()
+        .filter(|l| {
+            let by_colon = split_label(l).map(|(lab, _)| if conversation { canon_role(&lab, extra).is_some() } else { mode_fields.iter().any(|f| f.to_lowercase() == lab.to_lowercase()) }).unwrap_or(false);
+            by_colon || heading_label(l).map(|h| if conversation { canon_role(&h, extra).is_some() } else { mode_fields.iter().any(|f| f.to_lowercase() == h.to_lowercase()) }).unwrap_or(false)
+        })
+        .count()
+}
+
+/// op "text_records": records from a .txt / .md file.
+/// mode "conversation" | "fields" need role/field labels (markdown tolerated) and report a warning when none exist;
+/// mode "plain" makes one {"text": ...} record per line (split "lines") or per paragraph (split "paragraphs").
+pub fn text_records(v: &Value) -> Result<Value, String> {
+    let text = v.get("text").and_then(|t| t.as_str()).ok_or("missing string field 'text'")?;
+    let mode = v.get("mode").and_then(|m| m.as_str()).unwrap_or("plain");
+    let fields = str_list(v, "fields");
+    let extra = str_list(v, "extra_roles");
+    let mut warnings: Vec<String> = Vec::new();
+    let records: Vec<Value> = if mode == "plain" {
+        let paragraphs = v.get("split").and_then(|m| m.as_str()) == Some("paragraphs");
+        let parts: Vec<String> = if paragraphs {
+            let mut out = Vec::new();
+            let mut cur: Vec<&str> = Vec::new();
+            for line in text.lines() {
+                if line.trim().is_empty() {
+                    if !cur.is_empty() {
+                        out.push(cur.join("\n"));
+                        cur.clear();
+                    }
+                } else {
+                    cur.push(line);
+                }
+            }
+            if !cur.is_empty() {
+                out.push(cur.join("\n"));
+            }
+            out
+        } else {
+            text.lines().filter(|l| !l.trim().is_empty()).map(|l| l.to_string()).collect()
+        };
+        parts.into_iter().map(|p| Value::obj(vec![("text", Value::str(p))])).collect()
+    } else {
+        let conversation = mode == "conversation";
+        if !conversation && fields.is_empty() {
+            return Err("fields mode needs a non-empty 'fields' list".into());
+        }
+        if count_labels(text, &fields, conversation, &extra) == 0 {
+            warnings.push(if conversation {
+                "no role labels found (use lines like \"User: ...\" and \"Assistant: ...\", or markdown headings such as \"## User\")".to_string()
+            } else {
+                format!("no field labels found (expected lines starting with {})", fields.join(", "))
+            });
+            Vec::new()
+        } else {
+            let (groups, w) = if conversation { parse_conversations(text, &extra) } else { parse_fields(text, &fields) };
+            warnings.extend(w);
+            groups
+                .into_iter()
+                .map(|g| {
+                    if conversation {
+                        let msgs: Vec<Value> = g.into_iter().map(|(r, c)| Value::obj(vec![("role", Value::str(r)), ("content", Value::str(c))])).collect();
+                        Value::obj(vec![("messages", Value::Arr(msgs))])
+                    } else {
+                        Value::Obj(g.into_iter().map(|(k, c)| (k, Value::str(c))).collect())
+                    }
+                })
+                .collect()
+        }
+    };
+    Ok(Value::obj(vec![("records", Value::Arr(records)), ("warnings", Value::Arr(warnings.into_iter().map(Value::str).collect()))]))
 }
 
 /// op "to_script": records -> text (inverse of `build`).
@@ -247,6 +377,35 @@ mod tests {
         let recs = run(&input).get("records").unwrap().clone();
         let back = render(&Value::obj(vec![("records", recs)])).unwrap();
         assert_eq!(back.get("text").unwrap().as_str().unwrap(), src);
+    }
+
+    #[test]
+    fn markdown_labels() {
+        let r = run(r###"{"text":"## System\nBe brief.\n\n**User:** hello **world**\n- Assistant: hi\n**User**: again"}"###);
+        let recs = r.get("records").unwrap().as_arr().unwrap();
+        let m = recs[0].get("messages").unwrap().as_arr().unwrap();
+        assert_eq!(m.len(), 4);
+        assert_eq!(m[0].get("role").unwrap().as_str().unwrap(), "system");
+        assert_eq!(m[0].get("content").unwrap().as_str().unwrap(), "Be brief.");
+        assert_eq!(m[1].get("content").unwrap().as_str().unwrap(), "hello **world**");
+        assert_eq!(m[2].get("content").unwrap().as_str().unwrap(), "hi");
+        assert_eq!(m[3].get("content").unwrap().as_str().unwrap(), "again");
+    }
+
+    #[test]
+    fn text_records_modes() {
+        let go = |j: &str| text_records(&parse(j).unwrap()).unwrap();
+        let r = go(r#"{"mode":"plain","split":"paragraphs","text":"a\nb\n\nc"}"#);
+        let recs = r.get("records").unwrap().as_arr().unwrap();
+        assert_eq!(recs.len(), 2);
+        assert_eq!(recs[0].get("text").unwrap().as_str().unwrap(), "a\nb");
+        let r = go(r#"{"mode":"plain","split":"lines","text":"a\n\nb"}"#);
+        assert_eq!(r.get("records").unwrap().as_arr().unwrap().len(), 2);
+        let r = go(r#"{"mode":"conversation","text":"just some prose"}"#);
+        assert_eq!(r.get("records").unwrap().as_arr().unwrap().len(), 0);
+        assert_eq!(r.get("warnings").unwrap().as_arr().unwrap().len(), 1);
+        let r = go(r#"{"mode":"fields","fields":["q","a"],"text":"q: x\na: y"}"#);
+        assert_eq!(r.get("records").unwrap().as_arr().unwrap().len(), 1);
     }
 
     #[test]

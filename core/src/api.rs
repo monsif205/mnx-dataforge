@@ -71,6 +71,10 @@ fn dispatch(op: &str, v: &Value) -> Result<Value, String> {
                 .collect();
             Ok(Value::obj(vec![("items", Value::Arr(items))]))
         }
+        "msg_edit" => crate::tools::msg_edit(v),
+        "adapt" => crate::tools::adapt(v),
+        "expand" => crate::tools::expand(v),
+        "text_records" => crate::script::text_records(v),
         "pretty" => crate::tools::pretty(v),
         "preview" => crate::tools::preview(v),
         "enter" => crate::tools::enter(v),

@@ -15,6 +15,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -159,13 +160,13 @@ fun Glass(
 }
 
 @Composable
-fun Modifier.pressable(enabled: Boolean = true, onClick: () -> Unit): Modifier {
+fun Modifier.pressable(enabled: Boolean = true, onLongClick: (() -> Unit)? = null, onClick: () -> Unit): Modifier {
     val src = remember { MutableInteractionSource() }
     val pressed by src.collectIsPressedAsState()
     val s by animateFloatAsState(if (pressed && enabled) 0.95f else 1f, animationSpec = motion(), label = "press")
     return this
         .graphicsLayer { scaleX = s; scaleY = s }
-        .clickable(interactionSource = src, indication = null, enabled = enabled, onClick = onClick)
+        .combinedClickable(interactionSource = src, indication = null, enabled = enabled, onLongClick = onLongClick, onClick = onClick)
 }
 
 /** Fade + rise on first composition (staggered with [delayMs]). No-op when "Reduce motion" is on. */

@@ -1,0 +1,55 @@
+MNX DataForge - Source-Available License (View Only)
+Copyright (c) 2026 Monsif. All rights reserved.
+
+1. WHAT YOU MAY DO
+   You may read and study the source code in this repository, and you may
+   install and use the official signed builds published in the GitHub
+   Releases of this repository for your own personal or internal use.
+   You may also do whatever the GitHub Terms of Service allow on a public
+   repository (for example viewing the code and creating a fork on GitHub
+   for the sole purpose of proposing a contribution back to the owner).
+
+2. WHAT YOU MAY NOT DO
+   Without the prior written permission of the copyright holder you may NOT:
+   a) modify, adapt, translate or create derivative works of the software
+      or any part of its source code;
+   b) copy, publish, distribute, sublicense, sell, rent or lend the software
+      or any part of it, in source or binary form, modified or not;
+   c) build, sign or release your own versions or forks of the app, or use
+      its name, logo or package identifier for another product;
+   d) remove or alter this license or any copyright notice;
+   e) use the code or any part of it in another project, commercial or not;
+   f) reverse engineer the official builds, except where applicable law
+      expressly allows it despite this restriction.
+
+3. CONTRIBUTIONS
+   If the owner accepts a contribution (code, text or design) from you, you
+   grant the owner a perpetual, worldwide, royalty-free right to use, modify
+   and distribute it as part of the software, and you confirm you have the
+   right to do so. Contributions are accepted only at the owner's discretion.
+
+4. PERMISSION
+   To request permission for anything not allowed above, contact the owner
+   through the repository (open an issue or use GitHub private messaging)
+   and wait for a written reply. Silence is not permission.
+
+5. OWNERSHIP
+   The software is licensed, not sold. All rights not expressly granted are
+   reserved by the copyright holder.
+
+6. TERMINATION
+   Any breach of this license ends your rights under it immediately. You must
+   then stop using the software and delete all copies you made of the source.
+
+7. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+   NON-INFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY
+   CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM THE USE OF THE SOFTWARE.
+
+8. THIRD-PARTY COMPONENTS
+   Third-party libraries used by the app (for example the backdrop/liquid-glass
+   library) remain under their own licenses, which are not changed by this one.
+
+Note: this text is a plain-language custom license, not legal advice. For
+strong enforcement in your country, have a lawyer review it.
