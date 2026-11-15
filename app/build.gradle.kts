@@ -17,7 +17,8 @@ android {
         // CI passes the run number, so every build has a higher versionCode and can update the previous one.
         val code = (System.getenv("VERSION_CODE") ?: "1").toInt()
         versionCode = code
-        versionName = "0.2.$code"
+        // Marketing version lives in /version.txt (edit that file to bump it); versionCode stays the CI run number.
+        versionName = File(rootDir, "version.txt").readText().trim()
         // Samsung A06 and nearly all current phones are arm64. One ABI keeps the APK small.
         ndk { abiFilters += listOf("arm64-v8a") }
     }

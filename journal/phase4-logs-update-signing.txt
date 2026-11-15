@@ -37,3 +37,17 @@ ANIMATION
 UNVERIFIED (no Android SDK here)
  Whole Kotlin side compiles only in CI. Same caveats as phase 3 plus: FileProvider/installer flow, GitHub Release publishing step,
  and the Kotlin 2.3 toolchain.
+
+PHASE 4b - crash fix, icons, glass, release name
+ CRASH (opening Logs, creating a dataset): most likely cause = glass buttons (IconBtn, used by every pushed screen's back
+ button) were drawn INSIDE the layer the glass library samples (layerBackdrop), so the glass drew itself. Both reported
+ actions land on a screen that has such a button. Fix: BackdropHost now hands "no backdrop" to everything it captures (flat
+ fallback) and only overlay elements get the real backdrop. Page() now owns a small host: title + content are captured,
+ back/action buttons float above as real glass. Not verified on a device: if it still crashes, Settings -> Logs shows
+ breadcrumbs (nav push/pop, work start/done/FAILED) and the stack trace of the crash.
+ Also: Logger.init is repeated in MainActivity (idempotent) so logging never depends on the Application class.
+ ICONS: ui/Icons.kt, Cupertino-style duotone (tinted fill + rounded stroke), SVG paths parsed with PathParser; source and
+ design in journal/icons-source.txt. Preview rendered in Chromium before use.
+ GLASS: pill shapes (dock, buttons, chips, toast), lens depth per element, lit gradient rim, light blur so refraction shows.
+ RELEASE: version.txt holds the marketing version (1.0.5); CI names the asset MNX-DataForge-1.0.5.apk, title
+ "MNX DataForge 1.0.5". Tag stays build-<run number> (the updater compares it with versionCode).

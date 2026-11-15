@@ -89,3 +89,5 @@ PHASE 4 (latest)
        in-app updater (manual), Rust ops pretty/preview/enter/release_info (44 tests), animations everywhere.
  Needs from the user: add secrets KEYSTORE_B64 and KEYSTORE_PASSWORD in GitHub, back up the keystore.
  See journal/phase4-logs-update-signing.txt.
+
+PHASE 4b: crash fix (glass recursion), Cupertino duotone icons, pill liquid glass, version.txt = 1.0.5.

@@ -58,19 +58,30 @@ fun <T> ioState(initial: T, vararg keys: Any?, block: () -> T): State<T> =
         value = withContext(Dispatchers.IO) { try { block() } catch (e: Throwable) { initial } }
     }
 
+/**
+ * Screen frame. The title and the screen content live in the captured layer; the back/action buttons float above it
+ * as real glass, so they refract what is behind them.
+ */
 @Composable
 fun Page(title: String, onBack: (() -> Unit)? = null, actions: @Composable RowScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+    val p = LocalPalette.current
+    BackdropHost(Modifier.fillMaxSize(), background = p.bgTop, content = {
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+            Box(Modifier.fillMaxWidth().height(58.dp).padding(start = if (onBack != null) 66.dp else 18.dp, end = 18.dp), contentAlignment = Alignment.CenterStart) {
+                T(title, if (onBack == null) 30.sp else 20.sp, FontWeight.Bold, maxLines = 1)
+            }
+            content()
+        }
+    }, overlay = {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+            Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 14.dp, vertical = 8.dp).height(42.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (onBack != null) IconBtn(Ic.BACK, onBack)
-            T(title, if (onBack == null) 30.sp else 20.sp, FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
+            Box(Modifier.weight(1f))
             actions()
         }
-        content()
-    }
+    })
 }
 
 @Composable

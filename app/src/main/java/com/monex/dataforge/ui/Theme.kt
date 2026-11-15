@@ -209,7 +209,7 @@ fun T(
 @Composable
 fun GButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, icon: Ic? = null, accent: Boolean = false, danger: Boolean = false, enabled: Boolean = true) {
     val p = LocalPalette.current
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(50)
     val fg = if (accent) Color.White else if (danger) p.danger else p.accent
     val base = modifier
         .pressable(enabled, onClick)
@@ -311,73 +311,12 @@ fun SectionTitle(text: String) {
     T(text.uppercase(), 12.sp, FontWeight.Medium, LocalPalette.current.textDim, Modifier.padding(top = 18.dp, bottom = 6.dp, start = 6.dp))
 }
 
-// ------------------------------------------------------------------ icon system (one stroke style, 24 grid)
-
-enum class Ic { HOME, DATA, BACKUP, GEAR, PLUS, CHECK, SEARCH, SPLIT, CLOCK, TRASH, COPY, UP, DOWN, BACK, UNDO, REDO, IMPORT, EXPORT, LOCK, SAVE, CLOSE, MERGE, SCISSORS, WRITE, CODE, DB, BOLT, LAYERS, PLAY }
-
-private typealias Line = List<Pair<Float, Float>>
-
-private class Shape2(val lines: List<Line>, val circles: List<Triple<Float, Float, Float>> = emptyList())
-
-private fun l(vararg p: Float): Line = p.toList().chunked(2).map { it[0] to it[1] }
-
-private val ICONS: Map<Ic, Shape2> = mapOf(
-    Ic.HOME to Shape2(listOf(l(3f, 11f, 12f, 3f, 21f, 11f), l(5f, 10f, 5f, 21f, 19f, 21f, 19f, 10f), l(10f, 21f, 10f, 14f, 14f, 14f, 14f, 21f))),
-    Ic.DATA to Shape2(listOf(l(4f, 5f, 20f, 5f, 20f, 9f, 4f, 9f, 4f, 5f), l(4f, 11f, 20f, 11f, 20f, 15f, 4f, 15f, 4f, 11f), l(4f, 17f, 20f, 17f, 20f, 21f, 4f, 21f, 4f, 17f))),
-    Ic.BACKUP to Shape2(listOf(l(12f, 3f, 12f, 15f), l(7f, 10f, 12f, 15f, 17f, 10f), l(4f, 17f, 4f, 21f, 20f, 21f, 20f, 17f))),
-    Ic.GEAR to Shape2(listOf(l(4f, 7f, 20f, 7f), l(4f, 17f, 20f, 17f)), listOf(Triple(9f, 7f, 2.4f), Triple(15f, 17f, 2.4f))),
-    Ic.PLUS to Shape2(listOf(l(12f, 5f, 12f, 19f), l(5f, 12f, 19f, 12f))),
-    Ic.CHECK to Shape2(listOf(l(5f, 12f, 10f, 17f, 19f, 7f))),
-    Ic.SEARCH to Shape2(listOf(l(15.5f, 15.5f, 20f, 20f)), listOf(Triple(11f, 11f, 6f))),
-    Ic.SPLIT to Shape2(listOf(l(12f, 21f, 12f, 12f), l(12f, 12f, 6f, 4f), l(12f, 12f, 18f, 4f))),
-    Ic.CLOCK to Shape2(listOf(l(12f, 7f, 12f, 12f, 16f, 14f)), listOf(Triple(12f, 12f, 9f))),
-    Ic.TRASH to Shape2(listOf(l(4f, 7f, 20f, 7f), l(9f, 7f, 9f, 4f, 15f, 4f, 15f, 7f), l(6f, 7f, 7f, 20f, 17f, 20f, 18f, 7f))),
-    Ic.COPY to Shape2(listOf(l(8f, 8f, 8f, 3f, 20f, 3f, 20f, 16f, 15f, 16f), l(4f, 8f, 15f, 8f, 15f, 21f, 4f, 21f, 4f, 8f))),
-    Ic.UP to Shape2(listOf(l(6f, 15f, 12f, 8f, 18f, 15f))),
-    Ic.DOWN to Shape2(listOf(l(6f, 9f, 12f, 16f, 18f, 9f))),
-    Ic.BACK to Shape2(listOf(l(15f, 5f, 8f, 12f, 15f, 19f))),
-    Ic.UNDO to Shape2(listOf(l(9f, 7f, 4f, 12f, 9f, 17f), l(4f, 12f, 14f, 12f, 19f, 15f, 19f, 19f))),
-    Ic.REDO to Shape2(listOf(l(15f, 7f, 20f, 12f, 15f, 17f), l(20f, 12f, 10f, 12f, 5f, 15f, 5f, 19f))),
-    Ic.IMPORT to Shape2(listOf(l(12f, 3f, 12f, 14f), l(7f, 9f, 12f, 14f, 17f, 9f), l(4f, 15f, 4f, 21f, 20f, 21f, 20f, 15f))),
-    Ic.EXPORT to Shape2(listOf(l(12f, 15f, 12f, 4f), l(7f, 9f, 12f, 4f, 17f, 9f), l(4f, 15f, 4f, 21f, 20f, 21f, 20f, 15f))),
-    Ic.LOCK to Shape2(listOf(l(5f, 11f, 19f, 11f, 19f, 21f, 5f, 21f, 5f, 11f), l(8f, 11f, 8f, 8f, 10f, 5f, 14f, 5f, 16f, 8f, 16f, 11f))),
-    Ic.SAVE to Shape2(listOf(l(5f, 3f, 17f, 3f, 21f, 7f, 21f, 21f, 5f, 21f, 5f, 3f), l(8f, 3f, 8f, 9f, 16f, 9f, 16f, 3f), l(8f, 21f, 8f, 14f, 16f, 14f, 16f, 21f))),
-    Ic.CLOSE to Shape2(listOf(l(6f, 6f, 18f, 18f), l(18f, 6f, 6f, 18f))),
-    Ic.MERGE to Shape2(listOf(l(6f, 4f, 12f, 12f), l(18f, 4f, 12f, 12f), l(12f, 12f, 12f, 21f))),
-    Ic.WRITE to Shape2(listOf(l(4f, 20f, 5f, 15f, 16f, 4f, 20f, 8f, 9f, 19f, 4f, 20f), l(14f, 6f, 18f, 10f))),
-    Ic.CODE to Shape2(listOf(l(8f, 7f, 3f, 12f, 8f, 17f), l(16f, 7f, 21f, 12f, 16f, 17f), l(14f, 5f, 10f, 19f))),
-    Ic.DB to Shape2(listOf(l(4f, 6f, 4f, 18f), l(20f, 6f, 20f, 18f), l(4f, 12f, 8f, 14f, 16f, 14f, 20f, 12f), l(4f, 18f, 8f, 20f, 16f, 20f, 20f, 18f), l(4f, 6f, 8f, 4f, 16f, 4f, 20f, 6f, 16f, 8f, 8f, 8f, 4f, 6f))),
-    Ic.BOLT to Shape2(listOf(l(13f, 3f, 5f, 13f, 12f, 13f, 11f, 21f, 19f, 10f, 12f, 10f, 13f, 3f))),
-    Ic.LAYERS to Shape2(listOf(l(12f, 3f, 21f, 8f, 12f, 13f, 3f, 8f, 12f, 3f), l(3f, 12f, 12f, 17f, 21f, 12f), l(3f, 16f, 12f, 21f, 21f, 16f))),
-    Ic.PLAY to Shape2(listOf(l(7f, 4f, 19f, 12f, 7f, 20f, 7f, 4f))),
-    Ic.SCISSORS to Shape2(listOf(l(8f, 8f, 20f, 18f), l(8f, 16f, 20f, 6f)), listOf(Triple(6f, 6.5f, 2.5f), Triple(6f, 17.5f, 2.5f)))
-)
-
-@Composable
-fun Icon(ic: Ic, tint: Color, size: Dp = 22.dp) {
-    val shape = ICONS.getValue(ic)
-    val mirror = LocalLayoutDirection.current == LayoutDirection.Rtl && (ic == Ic.BACK || ic == Ic.UNDO || ic == Ic.REDO)
-    Canvas(Modifier.size(size)) {
-        val s = this.size.width / 24f
-        val st = Stroke(width = 1.9f * s, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        fun render(scope: androidx.compose.ui.graphics.drawscope.DrawScope) = with(scope) {
-            for (line in shape.lines) {
-                val path = Path()
-                line.forEachIndexed { i, (x, y) -> if (i == 0) path.moveTo(x * s, y * s) else path.lineTo(x * s, y * s) }
-                drawPath(path, tint, style = st)
-            }
-            for ((cx, cy, r) in shape.circles) drawCircle(tint, r * s, Offset(cx * s, cy * s), style = st)
-        }
-        if (mirror) scale(-1f, 1f, pivot = center) { render(this) } else render(this)
-    }
-}
-
 // ------------------------------------------------------------------ dock (bottom navigation)
 
 @Composable
 fun Dock(items: List<Triple<Ic, String, Boolean>>, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
     val p = LocalPalette.current
-    LiquidGlass(modifier.fillMaxWidth().padding(horizontal = 16.dp), radius = 32.dp) {
+    LiquidGlass(modifier.fillMaxWidth().padding(horizontal = 16.dp), radius = 40.dp, refraction = 22.dp) {
         Row(Modifier.fillMaxWidth().padding(5.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             items.forEachIndexed { i, (ic, label, selected) ->
                 val a by animateFloatAsState(if (selected) 1f else 0f, animationSpec = motion(), label = "dock")
@@ -385,8 +324,8 @@ fun Dock(items: List<Triple<Ic, String, Boolean>>, onSelect: (Int) -> Unit, modi
                     Modifier
                         .weight(1f)
                         .pressable(true) { onSelect(i) }
-                        .clip(RoundedCornerShape(26.dp))
-                        .background(p.text.copy(alpha = 0.10f * a))
+                        .clip(RoundedCornerShape(40.dp))
+                        .background(p.text.copy(alpha = 0.12f * a))
                         .padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {

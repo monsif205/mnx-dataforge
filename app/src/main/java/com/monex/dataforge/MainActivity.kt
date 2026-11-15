@@ -62,6 +62,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Normally done by DfApp; repeated here (idempotent) so logging never depends on the Application class loading.
+        com.monex.dataforge.core.Logger.init(applicationContext)
         enableEdgeToEdge()
         state = AppState(applicationContext)
         state.init()
@@ -142,8 +144,8 @@ fun App(st: AppState) {
                 st.message?.let { m ->
                     LaunchedEffect(m) { delay(4000); if (st.message == m) st.message = null }
                     Box(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = if (st.stack.isEmpty()) 100.dp else 24.dp)) {
-                        LiquidGlass(Modifier.fillMaxWidth().popIn().pressable { st.message = null }, radius = 20.dp) {
-                            Box(Modifier.padding(14.dp)) { T(m, 14.sp) }
+                        LiquidGlass(Modifier.fillMaxWidth().popIn().pressable { st.message = null }, radius = 28.dp, refraction = 14.dp) {
+                            Box(Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) { T(m, 14.sp) }
                         }
                     }
                 }

@@ -5,6 +5,8 @@ package com.monex.dataforge.ui
 
 import android.os.Build
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -42,48 +44,59 @@ fun BackdropHost(
     val backdrop = rememberLayerBackdrop()
     CompositionLocalProvider(LocalBackdrop provides backdrop) {
         Box(modifier) {
-            Box(Modifier.fillMaxSize().background(background).layerBackdrop(backdrop), content = content)
+            // A glass element must NEVER be a child of the layer it samples (it would draw itself -> crash).
+            // So everything captured gets "no backdrop" (flat fallback) and only the overlay sees the real one.
+            CompositionLocalProvider(LocalBackdrop provides null) {
+                Box(Modifier.fillMaxSize().background(background).layerBackdrop(backdrop), content = content)
+            }
             overlay()
         }
     }
 }
 
 /**
- * A glass surface: blur + saturation boost + (Android 13+) edge refraction lens, with a thin lit rim.
- * Falls back to a translucent flat fill when no backdrop is available.
+ * A pill/rounded glass surface: blur + saturation boost + real edge refraction lens (Android 13+),
+ * a lit rim, and a soft inner tint. [refraction] is the lens depth. Without a backdrop it falls back to a flat
+ * translucent fill with the same rim, so it is always safe to use.
  */
 @Composable
 fun LiquidGlass(
     modifier: Modifier = Modifier,
     radius: Dp = 28.dp,
+    refraction: Dp = 18.dp,
     tint: Color = Color.Unspecified,
     content: @Composable BoxScope.() -> Unit
 ) {
     val p = LocalPalette.current
     val backdrop = LocalBackdrop.current
     val shape = RoundedCornerShape(radius)
-    val surface = if (p.dark) Color(0xFF1C1C1E).copy(alpha = 0.40f) else Color.White.copy(alpha = 0.45f)
-    val m = if (backdrop == null) {
-        modifier.then(Modifier.glassFallback(shape, surface))
+    val surface = if (p.dark) Color(0xFF2A2A2D).copy(alpha = 0.34f) else Color.White.copy(alpha = 0.38f)
+    val rim = Brush.linearGradient(
+        0f to Color.White.copy(alpha = if (p.dark) 0.55f else 0.9f),
+        0.45f to Color.White.copy(alpha = 0.06f),
+        1f to Color.White.copy(alpha = if (p.dark) 0.30f else 0.55f)
+    )
+    val base = if (backdrop == null) {
+        modifier.glassFallback(shape, surface)
     } else {
         modifier.drawBackdrop(
             backdrop = backdrop,
             shape = { shape },
             effects = {
                 vibrancy()
-                blur(with(this) { 10.dp.toPx() })
+                blur(with(this) { 3.dp.toPx() })
                 if (Build.VERSION.SDK_INT >= 33) {
-                    val h = with(this) { (radius.toPx() * 0.5f).coerceAtMost(16.dp.toPx()) }
-                    lens(h, h * 1.4f)
+                    val h = with(this) { refraction.toPx() }
+                    lens(h, h * 2f)
                 }
             },
             onDrawSurface = {
                 drawRect(surface)
-                if (tint != Color.Unspecified) drawRect(tint.copy(alpha = 0.35f))
+                if (tint != Color.Unspecified) drawRect(tint.copy(alpha = 0.30f))
             }
         )
     }
-    Box(m, content = content)
+    Box(base.border(1.dp, rim, shape), content = content)
 }
 
 private fun Modifier.glassFallback(shape: androidx.compose.ui.graphics.Shape, fill: Color): Modifier =

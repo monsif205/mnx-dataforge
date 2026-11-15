@@ -96,8 +96,8 @@ class AppState(val ctx: Context) {
     fun setMotionOff(b: Boolean) { reduceMotion = b; prefs.edit().putBoolean("motion_off", b).apply() }
 
     fun bump() { rev++ }
-    fun push(s: Screen) { stack = stack + s }
-    fun pop() { if (stack.isNotEmpty()) stack = stack.dropLast(1) }
+    fun push(s: Screen) { com.monex.dataforge.core.Logger.i("nav", "push ${s::class.simpleName}"); stack = stack + s }
+    fun pop() { if (stack.isNotEmpty()) { com.monex.dataforge.core.Logger.i("nav", "pop ${stack.last()::class.simpleName}"); stack = stack.dropLast(1) } }
     fun toast(s: String) { message = s }
     fun progress(s: String) { busyDetail = s }
 

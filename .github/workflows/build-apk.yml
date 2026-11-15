@@ -83,7 +83,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/release/*.apk "MNX-DataForge-${{ github.run_number }}.apk"
-          gh release create "build-${{ github.run_number }}" "MNX-DataForge-${{ github.run_number }}.apk" \
-            --title "Build ${{ github.run_number }}" \
+          VERSION="$(tr -d '[:space:]' < version.txt)"
+          APK="MNX-DataForge-${VERSION}.apk"
+          cp app/build/outputs/apk/release/*.apk "$APK"
+          # The tag stays build-<number> (the app compares that number with its versionCode).
+          gh release create "build-${{ github.run_number }}" "$APK" \
+            --title "MNX DataForge ${VERSION}" \
             --notes "$(git log -1 --pretty=%s)" --latest

@@ -20,6 +20,7 @@ object Logger {
     private val fmt = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US)
 
     fun init(ctx: Context) {
+        if (dir != null) return
         val d = File(ctx.filesDir, "logs")
         d.mkdirs()
         dir = d
