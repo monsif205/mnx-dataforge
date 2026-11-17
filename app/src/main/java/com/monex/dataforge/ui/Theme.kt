@@ -305,7 +305,7 @@ fun Toggle(on: Boolean, onChange: (Boolean) -> Unit, label: String) {
         T(label, 16.sp, modifier = Modifier.weight(1f, fill = true))
         val x by animateFloatAsState(if (on) 1f else 0f, animationSpec = motion(), label = "toggle")
         Box(Modifier.size(width = 51.dp, height = 31.dp).clip(RoundedCornerShape(50)).background(if (on) p.ok else if (p.dark) Color(0xFF39393D) else Color(0x29000000)).padding(2.dp)) {
-            Box(Modifier.padding(start = (20.dp * x)).size(27.dp).shadow(2.dp, RoundedCornerShape(50)).clip(RoundedCornerShape(50)).background(Color.White))
+            Box(Modifier.padding(start = (20.dp * x.coerceIn(0f, 1f))).size(27.dp).shadow(2.dp, RoundedCornerShape(50)).clip(RoundedCornerShape(50)).background(Color.White))
         }
     }
 }

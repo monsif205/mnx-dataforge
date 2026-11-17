@@ -40,3 +40,8 @@ NOT VERIFIED / LIMITS
 - Zstandard dictionaries unsupported. Parquet nested columns and DELTA encodings unsupported.
 - Unicode normalisation has no canonical reordering of stacked combining marks.
 - Download resume was tested by reasoning and unit tests of the pieces, not against a live server.
+
+FIX 1.0.8 - crash "Padding must be non-negative" (Toggle)
+- Cause: the Toggle knob offset was 20.dp * x, where x comes from a spring animation that overshoots below 0 when a switch turns off.
+  A negative padding throws in the next frame. It showed up now because the Add-source dialog has many switches.
+- Fix: x is clamped to 0..1 in Theme.kt (Toggle). All switches in the app were affected, not only the new screen.
