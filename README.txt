@@ -16,8 +16,9 @@ WHY IT IS FAST AND LIGHT
   SQLite storage   WAL mode and full-text search (FTS) handle large datasets;
                    history and versions are content-addressed so they cost
                    almost nothing.
-  Streaming        Large JSONL files are imported and exported in chunks, so
-                   memory stays flat whatever the file size.
+  Streaming        Every import format is read as a stream by the Rust engine
+                   (by file descriptor, no copy), so memory stays flat whatever
+                   the file size: a 5 GB file uses the same RAM as a 5 MB one.
 
 WHAT YOU CAN DO
   Create            Projects and datasets of any kind: conversations (any
@@ -28,10 +29,26 @@ WHAT YOU CAN DO
   Edit              Structured record editor with role chips, add / duplicate /
                     split / merge / reorder messages, undo/redo, draft
                     recovery, and a JSON view for full control.
-  Import            .jsonl, .json, .csv, .tsv, .txt and .md. ShareGPT, Alpaca
-                    and prompt/completion formats are converted automatically.
-                    Markdown conversations ("**User:** ...", "## Assistant")
-                    are understood.
+  Import            JSONL, JSON, CSV, TSV, TXT, Markdown, HTML pages, Parquet,
+                    and ZIP / TAR / gzip / Zstandard archives of those. Size
+                    and decompression limits, corrupt-data detection and
+                    per-error logging: a bad line, row group or archive entry
+                    is skipped and logged, the rest is still imported.
+                    ShareGPT, Alpaca and prompt/completion formats are
+                    converted automatically. Markdown conversations are
+                    understood.
+  Sources           Register a file URL, web page or JSON API. License Gate
+                    first (allow / needs your decision / blocked). Resumable,
+                    parallel, chunked downloads with retry, Retry-After and
+                    rate limiting; SHA-256 verification; source metadata;
+                    version history; incremental updates (conditional
+                    requests plus content fingerprints). robots.txt is
+                    honoured for web pages. API keys are never stored.
+  Extract           HTML to clean text: boilerplate, navigation, ads, cookie
+                    banners removed; headings kept; Unicode and whitespace
+                    normalised; paragraphs rebuilt; sentence boundaries.
+  Intelligence      Length, readability, quality, language, source, license,
+                    domain, time and duplicate statistics for a dataset.
   Clean             Exact and near-duplicate detection, token-level search,
                     batch operations, template expansion with variables.
   Validate          Required fields, schema kinds, quality reports per record.
@@ -52,8 +69,9 @@ DESIGN
 
 PRIVACY AND SECURITY
   Everything is stored locally. Network access is used only by the optional
-  in-app updater (checks GitHub Releases) and by the log-report button you
-  press yourself. Builds are signed with a persistent key so updates install
+  in-app updater (checks GitHub Releases), by the log-report button you
+  press yourself, and by sources you register and fetch yourself. Nothing
+  runs in the background. Builds are signed with a persistent key so updates install
   over the previous version. See SECURITY.md.
 
 GET THE APP

@@ -120,6 +120,8 @@ fun App(st: AppState) {
                         is Screen.DatasetS -> DatasetScreen(st, t.id)
                         is Screen.EditorS -> RecordEditor(st, t.datasetId, t.recordId)
                         is Screen.WriteS -> WriteScreen(st, t.datasetId)
+                        is Screen.SourcesS -> com.monex.dataforge.ui.SourcesScreen(st, t.datasetId)
+                        is Screen.IntelS -> com.monex.dataforge.ui.IntelScreen(st, t.datasetId)
                         Screen.LogsS -> com.monex.dataforge.ui.LogsScreen(st)
                         0 -> HomeScreen(st)
                         1 -> DataScreen(st)

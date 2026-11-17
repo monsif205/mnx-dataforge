@@ -2,7 +2,7 @@
 //! Every call returns {"ok":true,"result":...} or {"ok":false,"error":"..."}.
 
 use crate::json::{self, Value};
-use crate::{csv, export, leak, split, stats, text, validate};
+use crate::{csv, export, html, intel, leak, license, nlp, split, stats, text, unorm, validate, web};
 use std::collections::HashSet;
 
 pub const VERSION: &str = "0.1.0";
@@ -71,6 +71,28 @@ fn dispatch(op: &str, v: &Value) -> Result<Value, String> {
                 .collect();
             Ok(Value::obj(vec![("items", Value::Arr(items))]))
         }
+        "file_hash" => crate::reader::op_file_hash(v),
+        "probe" => crate::reader::op_probe(v),
+        "reader_open" => crate::reader::op_open(v),
+        "reader_next" => crate::reader::op_next(v),
+        "reader_close" => crate::reader::op_close(v),
+        "html_extract" => html_extract(v),
+        "clean_text" => clean_text(v),
+        "sentences" => {
+            let t = req_str(v, "text")?;
+            Ok(Value::obj(vec![("sentences", Value::Arr(nlp::sentences(t).into_iter().map(Value::str).collect()))]))
+        }
+        "reflow" => Ok(Value::obj(vec![("text", Value::str(nlp::reflow(req_str(v, "text")?)))])),
+        "text_quality" => text_quality(v),
+        "license_check" => license::check(v),
+        "robots_check" => {
+            let (ok, delay) = web::robots(req_str(v, "robots")?, v.get("agent").and_then(|a| a.as_str()).unwrap_or("*"), v.get("path").and_then(|a| a.as_str()).unwrap_or("/"));
+            Ok(Value::obj(vec![("allowed", Value::Bool(ok)), ("crawl_delay", delay.map(Value::float).unwrap_or(Value::Null))]))
+        }
+        "domain_of" => Ok(Value::obj(vec![("domain", web::domain_of(req_str(v, "url")?).map(Value::str).unwrap_or(Value::Null))])),
+        "intel_open" => intel::open(v),
+        "intel_add" => intel::add(v),
+        "intel_finish" => intel::finish(v),
         "msg_edit" => crate::tools::msg_edit(v),
         "adapt" => crate::tools::adapt(v),
         "expand" => crate::tools::expand(v),
@@ -323,4 +345,77 @@ mod tests {
         let r = ok("validate", input);
         assert_eq!(r.get("errors").unwrap().as_f64().unwrap(), 1.0);
     }
+}
+
+
+fn html_extract(v: &Value) -> Result<Value, String> {
+    let html = req_str(v, "html")?;
+    let mut o = html::Opts::default();
+    if let Some(m) = v.get("markdown").and_then(|x| x.as_bool()) {
+        o.markdown = m;
+    }
+    if let Some(n) = v.get("min_block_chars").and_then(|x| x.as_f64()) {
+        o.min_block_chars = n.max(0.0) as usize;
+    }
+    let d = html::extract(html, &o);
+    let blocks: Vec<Value> = d
+        .blocks
+        .iter()
+        .map(|b| {
+            let kind = match b.kind {
+                html::Kind::Heading => "heading",
+                html::Kind::Para => "paragraph",
+                html::Kind::Item => "item",
+                html::Kind::Code => "code",
+                html::Kind::Quote => "quote",
+            };
+            Value::obj(vec![("type", Value::str(kind)), ("level", Value::int(b.level as i64)), ("text", Value::str(b.text.clone()))])
+        })
+        .collect();
+    Ok(Value::obj(vec![
+        ("title", Value::str(d.title)),
+        ("lang", Value::str(d.lang)),
+        ("text", Value::str(d.text)),
+        ("blocks", Value::Arr(blocks)),
+        ("meta", Value::Obj(d.meta.into_iter().map(|(k, x)| (k, Value::str(x))).collect())),
+        ("license_hints", Value::Arr(d.license_hints.into_iter().map(Value::str).collect())),
+        ("raw_chars", Value::int(d.raw_chars as i64)),
+        ("kept_chars", Value::int(d.kept_chars as i64)),
+        ("removed_blocks", Value::int(d.removed_blocks as i64)),
+        ("truncated", Value::Bool(d.truncated)),
+    ]))
+}
+
+fn clean_text(v: &Value) -> Result<Value, String> {
+    let t = req_str(v, "text")?;
+    let flag = |k: &str, d: bool| v.get(k).and_then(|x| x.as_bool()).unwrap_or(d);
+    let o = unorm::CleanOpts {
+        compat: flag("compat", true),
+        compose: flag("compose", true),
+        strip_invisible: flag("strip_invisible", true),
+        strip_tatweel: flag("strip_tatweel", true),
+        strip_arabic_marks: flag("strip_arabic_marks", false),
+        fold_arabic_letters: flag("fold_arabic_letters", false),
+        collapse_ws: flag("collapse_ws", true),
+        max_blank_lines: v.get("max_blank_lines").and_then(|x| x.as_f64()).unwrap_or(1.0).clamp(0.0, 5.0) as usize,
+    };
+    Ok(Value::obj(vec![("text", Value::str(unorm::clean(t, &o)))]))
+}
+
+fn text_quality(v: &Value) -> Result<Value, String> {
+    let t = req_str(v, "text")?;
+    let (q, why) = nlp::quality(t);
+    let (lix, flesch, spw, awl) = nlp::readability(t);
+    let (lang, conf) = nlp::detect_lang(t);
+    Ok(Value::obj(vec![
+        ("quality", Value::float(q)),
+        ("reasons", Value::Arr(why.into_iter().map(Value::str).collect())),
+        ("lix", Value::float(lix)),
+        ("flesch", flesch.map(Value::float).unwrap_or(Value::Null)),
+        ("words_per_sentence", Value::float(spw)),
+        ("avg_word_length", Value::float(awl)),
+        ("lang", Value::str(lang)),
+        ("lang_confidence", Value::float(conf)),
+        ("sentences", Value::int(nlp::sentences(t).len() as i64)),
+    ]))
 }

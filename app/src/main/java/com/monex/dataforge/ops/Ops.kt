@@ -38,7 +38,7 @@ fun datasetValidationKind(kind: String): String = when (kind) {
 
 // ---------------------------------------------------------------- import
 
-data class ImportResult(val imported: Int, val rejected: Int, val errors: List<String>, val cancelled: Boolean)
+data class ImportResult(val imported: Int, val rejected: Int, val errors: List<String>, val cancelled: Boolean, val skipped: Int = 0, val errorsTotal: Int = 0, val format: String = "")
 
 /** Maps ShareGPT / Alpaca / prompt-completion records to {"messages":[...]} in the Rust engine. Null entries could not be converted. */
 fun adaptBatch(batch: List<JSONObject>): List<Pair<JSONObject?, Boolean>> {
@@ -46,112 +46,6 @@ fun adaptBatch(batch: List<JSONObject>): List<Pair<JSONObject?, Boolean>> {
     val res = NativeCore.run("adapt", JSONObject().put("records", arr))
     val recs = res.getJSONArray("records"); val ch = res.getJSONArray("changed")
     return batch.indices.map { recs.optJSONObject(it) to ch.optBoolean(it) }
-}
-
-fun importFile(
-    ctx: Context, uri: Uri, repo: Repo, ds: Dataset, license: String,
-    progress: (String) -> Unit, cancelled: () -> Boolean
-): ImportResult {
-    val name = displayName(ctx, uri)
-    val lower = name.lowercase()
-    var imported = 0
-    var rejected = 0
-    val errors = ArrayList<String>()
-    fun err(s: String) { rejected++; if (errors.size < 20) errors.add(s) }
-
-    fun accept(batch: List<JSONObject>) {
-        val items = ArrayList<NewRec>()
-        if (ds.kind == "conversation") {
-            for ((adapted, changed) in adaptBatch(batch)) {
-                if (adapted == null) { err("record has no messages and is not a known conversation format"); continue }
-                items.add(NewRec(adapted, if (changed) "transformed" else "imported", name, license))
-            }
-        } else {
-            for (o in batch) items.add(NewRec(o, "imported", name, license))
-        }
-        if (items.isNotEmpty()) { repo.insertRecords(ds.id, items, history = false); imported += items.size }
-    }
-
-    fun objectsOnly(values: JSONArray, lineOf: (Int) -> String): List<JSONObject> {
-        val out = ArrayList<JSONObject>()
-        for (i in 0 until values.length()) {
-            val o = values.optJSONObject(i)
-            if (o == null) err("${lineOf(i)}: record is not a JSON object") else out.add(o)
-        }
-        return out
-    }
-
-    var wasCancelled = false
-    when {
-        lower.endsWith(".jsonl") || lower.endsWith(".ndjson") -> {
-            ctx.contentResolver.openInputStream(uri)!!.use { ins ->
-                val br = BufferedReader(InputStreamReader(ins, Charsets.UTF_8))
-                var lineNo = 0
-                val chunk = StringBuilder()
-                var chunkStart = 1
-                var inChunk = 0
-                fun flush() {
-                    if (inChunk == 0) return
-                    val res = NativeCore.run("parse_jsonl", JSONObject().put("text", chunk.toString()))
-                    val errs = res.getJSONArray("errors")
-                    for (i in 0 until errs.length()) {
-                        val e = errs.getJSONObject(i)
-                        err("line ${chunkStart + e.getInt("line") - 1}: ${e.getString("message")}")
-                    }
-                    accept(objectsOnly(res.getJSONArray("records")) { "record $it" })
-                    chunk.setLength(0); inChunk = 0
-                    progress("$name: $imported imported, $rejected rejected")
-                }
-                while (true) {
-                    val line = br.readLine() ?: break
-                    lineNo++
-                    if (inChunk == 0) chunkStart = lineNo
-                    chunk.append(line).append('\n'); inChunk++
-                    if (inChunk >= 500) { flush(); if (cancelled()) { wasCancelled = true; break } }
-                }
-                if (!wasCancelled) flush()
-            }
-        }
-        lower.endsWith(".json") || lower.endsWith(".csv") || lower.endsWith(".tsv") || lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".markdown") -> {
-            val size = ctx.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: 0L
-            if (size > MAX_TEXT_IMPORT_BYTES) throw IllegalStateException("$name is larger than 64 MB. Convert it to JSONL, which is imported as a stream.")
-            val text = ctx.contentResolver.openInputStream(uri)!!.use { it.readBytes().toString(Charsets.UTF_8) }
-            val records: List<JSONObject> = when {
-                lower.endsWith(".json") -> {
-                    val res = NativeCore.run("parse_json", JSONObject().put("text", text))
-                    objectsOnly(res.getJSONArray("records")) { "item $it" }
-                }
-                lower.endsWith(".csv") || lower.endsWith(".tsv") -> {
-                    val res = NativeCore.run("parse_csv", JSONObject().put("text", text).put("delimiter", if (lower.endsWith(".tsv")) "\t" else ","))
-                    res.optJSONArray("errors")?.let { e -> for (i in 0 until e.length()) err("line ${e.getJSONObject(i).getInt("line")}: ${e.getJSONObject(i).getString("message")}") }
-                    objectsOnly(res.getJSONArray("records")) { "row $it" }
-                }
-                else -> {
-                    val isMd = lower.endsWith(".md") || lower.endsWith(".markdown")
-                    val q = JSONObject().put("text", text)
-                    when {
-                        ds.kind == "conversation" -> q.put("mode", "conversation")
-                        ds.required.isNotEmpty() && ds.required.none { it == "text" } && ds.required.size > 1 && !ds.required.any { it.contains('.') } ->
-                            q.put("mode", "fields").put("fields", JSONArray(ds.required))
-                        else -> q.put("mode", "plain").put("split", if (isMd) "paragraphs" else "lines")
-                    }
-                    val res = NativeCore.run("text_records", q)
-                    res.optJSONArray("warnings")?.let { w -> for (k in 0 until w.length()) err(w.getString(k)) }
-                    objectsOnly(res.getJSONArray("records")) { "block $it" }
-                }
-            }
-            var i = 0
-            while (i < records.size) {
-                accept(records.subList(i, minOf(i + 500, records.size)))
-                i += 500
-                progress("$name: $imported imported, $rejected rejected")
-                if (cancelled()) { wasCancelled = true; break }
-            }
-        }
-        else -> throw IllegalStateException("Unsupported file type: $name (use .jsonl, .json, .csv, .tsv, .txt or .md)")
-    }
-    repo.logImport(ds.id, name, license, imported, rejected)
-    return ImportResult(imported, rejected, errors, wasCancelled)
 }
 
 // ---------------------------------------------------------------- export

@@ -91,3 +91,9 @@ PHASE 4 (latest)
  See journal/phase4-logs-update-signing.txt.
 
 PHASE 4b: crash fix (glass recursion), Cupertino duotone icons, pill liquid glass, version.txt = 1.0.5.
+
+
+PHASE 6 (latest, version 1.0.7)
+ Done: Rust ingestion engine (zip/tar/gzip/zstd, parquet, html extraction, normalisation, license gate, robots, intelligence; 79 tests),
+       resumable parallel downloader, Sources screen with License Gate, version tracking, incremental updates, Dataset Intelligence.
+ Not verified: Kotlin compile (CI), device behaviour. See journal/phase6-ingestion-engine.txt.

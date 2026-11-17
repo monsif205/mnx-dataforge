@@ -20,6 +20,8 @@ sealed class Screen {
     data class DatasetS(val id: String) : Screen()
     data class EditorS(val datasetId: String, val recordId: String?) : Screen()
     data class WriteS(val datasetId: String) : Screen()
+    data class SourcesS(val datasetId: String) : Screen()
+    data class IntelS(val datasetId: String) : Screen()
     object LogsS : Screen()
 }
 

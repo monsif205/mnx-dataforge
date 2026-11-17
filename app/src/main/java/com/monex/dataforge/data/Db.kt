@@ -15,7 +15,16 @@ import java.security.MessageDigest
 import java.util.UUID
 
 const val DB_NAME = "dataforge.db"
-const val DB_VERSION = 1
+const val DB_VERSION = 2
+
+
+/** Schema added in version 2: registered data sources and their fetched versions. */
+val SOURCES_DDL = listOf(
+    "CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY, dataset_id TEXT NOT NULL, kind TEXT NOT NULL, url TEXT NOT NULL, name TEXT, license TEXT, license_status TEXT, license_note TEXT, etag TEXT, last_modified TEXT, size INTEGER DEFAULT 0, sha256 TEXT, expected_sha256 TEXT, meta TEXT DEFAULT '{}', config TEXT DEFAULT '{}', created INTEGER, last_checked INTEGER, last_import INTEGER)",
+    "CREATE INDEX IF NOT EXISTS idx_src_ds ON sources(dataset_id)",
+    "CREATE TABLE IF NOT EXISTS source_versions(id TEXT PRIMARY KEY, source_id TEXT NOT NULL, ts INTEGER, etag TEXT, last_modified TEXT, size INTEGER, sha256 TEXT, imported INTEGER, skipped INTEGER, rejected INTEGER, note TEXT)",
+    "CREATE INDEX IF NOT EXISTS idx_srcver_src ON source_versions(source_id)"
+)
 
 class Db(private val ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERSION) {
     override fun onConfigure(db: SQLiteDatabase) {
@@ -44,11 +53,12 @@ class Db(private val ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VER
             "CREATE TABLE imports(id TEXT PRIMARY KEY, dataset_id TEXT NOT NULL, source TEXT, license TEXT, ts INTEGER, imported INTEGER, rejected INTEGER)"
         )
         ddl.forEach { db.execSQL(it) }
+        SOURCES_DDL.forEach { db.execSQL(it) }
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // Version 1 is the first schema. Future migrations go here as explicit, ordered steps:
-        // if (oldVersion < 2) { db.execSQL("ALTER TABLE ..."); }
+        // Ordered, additive migrations. Existing data is never touched.
+        if (oldVersion < 2) SOURCES_DDL.forEach { db.execSQL(it) }
     }
 
     fun dbFile(): File = ctx.getDatabasePath(DB_NAME)
@@ -70,8 +80,22 @@ data class NewRec(
     val label: String? = null, val grp: String? = null, val split: String = "unassigned"
 )
 
+data class Source(
+    val id: String, val datasetId: String, val kind: String, val url: String, val name: String, val license: String,
+    val licenseStatus: String, val licenseNote: String, val etag: String?, val lastModified: String?, val size: Long,
+    val sha256: String?, val expectedSha256: String?, val meta: JSONObject, val config: JSONObject, val created: Long,
+    val lastChecked: Long, val lastImport: Long
+)
+data class SourceVersion(val id: String, val ts: Long, val etag: String?, val lastModified: String?, val size: Long, val sha256: String?, val imported: Int, val skipped: Int, val rejected: Int, val note: String)
 data class VersionInfo(val id: String, val number: Int, val label: String, val created: Long, val count: Int)
 data class HistoryItem(val ts: Long, val op: String, val detail: String, val hash: String?)
+
+fun fingerprint(data: String): Long {
+    val d = MessageDigest.getInstance("SHA-256").digest(data.toByteArray(Charsets.UTF_8))
+    var x = 0L
+    for (i in 0 until 8) x = (x shl 8) or (d[i].toLong() and 0xff)
+    return x
+}
 
 fun sha256Hex(s: String): String {
     val d = MessageDigest.getInstance("SHA-256").digest(s.toByteArray(Charsets.UTF_8))
@@ -174,6 +198,8 @@ class Repo(private val helper: Db) {
     fun deleteDataset(id: String) {
         w.beginTransaction()
         try {
+            w.execSQL("DELETE FROM source_versions WHERE source_id IN (SELECT id FROM sources WHERE dataset_id=?)", arrayOf<Any?>(id))
+            w.execSQL("DELETE FROM sources WHERE dataset_id=?", arrayOf<Any?>(id))
             w.execSQL("DELETE FROM records_fts WHERE docid IN (SELECT seq FROM records WHERE dataset_id=?)", arrayOf<Any?>(id))
             w.execSQL("DELETE FROM records WHERE dataset_id=?", arrayOf<Any?>(id))
             w.execSQL("DELETE FROM version_records WHERE version_id IN (SELECT id FROM versions WHERE dataset_id=?)", arrayOf<Any?>(id))
@@ -407,6 +433,87 @@ class Repo(private val helper: Db) {
     fun logImport(ds: String, source: String, license: String, imported: Int, rejected: Int) {
         w.execSQL("INSERT INTO imports(id,dataset_id,source,license,ts,imported,rejected) VALUES(?,?,?,?,?,?,?)", arrayOf<Any?>(uid(), ds, source, license, now(), imported, rejected))
         logDs(ds, "import", "$source: $imported imported, $rejected rejected, license=$license")
+    }
+
+
+    // ---------- sources (registered origins with license decision and fetch history) ----------
+    private fun readSource(c: android.database.Cursor) = Source(
+        c.getString(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4) ?: "", c.getString(5) ?: "",
+        c.getString(6) ?: "", c.getString(7) ?: "", c.getString(8), c.getString(9), c.getLong(10), c.getString(11), c.getString(12),
+        try { JSONObject(c.getString(13) ?: "{}") } catch (e: Exception) { JSONObject() },
+        try { JSONObject(c.getString(14) ?: "{}") } catch (e: Exception) { JSONObject() },
+        c.getLong(15), c.getLong(16), c.getLong(17)
+    )
+    private val srcCols = "id,dataset_id,kind,url,name,license,license_status,license_note,etag,last_modified,size,sha256,expected_sha256,meta,config,created,last_checked,last_import"
+
+    fun sources(ds: String): List<Source> {
+        val out = ArrayList<Source>()
+        w.rawQuery("SELECT $srcCols FROM sources WHERE dataset_id=? ORDER BY created DESC", arrayOf(ds)).use { c -> while (c.moveToNext()) out.add(readSource(c)) }
+        return out
+    }
+
+    fun source(id: String): Source? =
+        w.rawQuery("SELECT $srcCols FROM sources WHERE id=?", arrayOf(id)).use { c -> if (c.moveToFirst()) readSource(c) else null }
+
+    fun addSource(ds: String, kind: String, url: String, name: String, license: String, status: String, note: String, expectedSha: String?, config: JSONObject): Source {
+        val id = uid()
+        w.execSQL(
+            "INSERT INTO sources(id,dataset_id,kind,url,name,license,license_status,license_note,expected_sha256,meta,config,created,last_checked,last_import) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,0,0)",
+            arrayOf<Any?>(id, ds, kind, url, name, license, status, note, expectedSha, "{}", config.toString(), now())
+        )
+        logDs(ds, "source", "registered $kind source $name (license=$license, gate=$status)")
+        return source(id)!!
+    }
+
+    fun deleteSource(id: String) {
+        w.beginTransaction()
+        try {
+            w.execSQL("DELETE FROM source_versions WHERE source_id=?", arrayOf<Any?>(id))
+            w.execSQL("DELETE FROM sources WHERE id=?", arrayOf<Any?>(id))
+            w.setTransactionSuccessful()
+        } finally { w.endTransaction() }
+    }
+
+    fun touchSource(id: String) = w.execSQL("UPDATE sources SET last_checked=? WHERE id=?", arrayOf<Any?>(now(), id))
+
+    /** Records the outcome of a fetch: becomes the new "current" version of the source. */
+    fun addSourceVersion(id: String, etag: String?, lastModified: String?, size: Long, sha: String?, imported: Int, skipped: Int, rejected: Int, note: String, meta: JSONObject?) {
+        w.beginTransaction()
+        try {
+            w.execSQL(
+                "INSERT INTO source_versions(id,source_id,ts,etag,last_modified,size,sha256,imported,skipped,rejected,note) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                arrayOf<Any?>(uid(), id, now(), etag, lastModified, size, sha, imported, skipped, rejected, note)
+            )
+            w.execSQL(
+                "UPDATE sources SET etag=?, last_modified=?, size=?, sha256=?, last_checked=?, last_import=?" + (if (meta != null) ", meta=?" else "") + " WHERE id=?",
+                (listOf<Any?>(etag, lastModified, size, sha, now(), now()) + (if (meta != null) listOf<Any?>(meta.toString()) else emptyList()) + listOf<Any?>(id)).toTypedArray()
+            )
+            w.setTransactionSuccessful()
+        } finally { w.endTransaction() }
+    }
+
+    fun sourceVersions(id: String): List<SourceVersion> {
+        val out = ArrayList<SourceVersion>()
+        w.rawQuery("SELECT id,ts,etag,last_modified,size,sha256,imported,skipped,rejected,note FROM source_versions WHERE source_id=? ORDER BY ts DESC", arrayOf(id)).use { c ->
+            while (c.moveToNext()) out.add(SourceVersion(c.getString(0), c.getLong(1), c.getString(2), c.getString(3), c.getLong(4), c.getString(5), c.getInt(6), c.getInt(7), c.getInt(8), c.getString(9) ?: ""))
+        }
+        return out
+    }
+
+    /** 64-bit prefixes of the SHA-256 of every record's data for [source] (cheap membership set for incremental imports). */
+    fun recordFingerprints(ds: String, source: String): HashSet<Long> {
+        val set = HashSet<Long>()
+        w.rawQuery("SELECT data FROM records WHERE dataset_id=? AND source=?", arrayOf(ds, source)).use { c ->
+            while (c.moveToNext()) set.add(fingerprint(c.getString(0)))
+        }
+        return set
+    }
+
+    // ---------- intelligence feed ----------
+    fun pageForIntel(ds: String, afterSeq: Long, limit: Int): List<Rec> {
+        val out = ArrayList<Rec>()
+        w.rawQuery("SELECT $recCols FROM records WHERE dataset_id=? AND seq>? ORDER BY seq LIMIT $limit", arrayOf(ds, afterSeq.toString())).use { c -> while (c.moveToNext()) out.add(readRec(c)) }
+        return out
     }
 
     // ---------- statistics ----------

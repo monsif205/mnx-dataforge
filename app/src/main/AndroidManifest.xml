@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- INTERNET is used ONLY when you press "Check for updates" (GitHub Releases). No background network, no telemetry.
+    <!-- INTERNET is used ONLY when you press "Check for updates" (GitHub Releases) or fetch a source you registered. No background network, no telemetry.
          REQUEST_INSTALL_PACKAGES lets the system installer open the downloaded update. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />

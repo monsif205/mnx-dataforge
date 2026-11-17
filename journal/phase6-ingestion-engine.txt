@@ -1,0 +1,42 @@
+Phase 6 - ingestion engine, downloader, License Gate, intelligence (version 1.0.7)
+
+RUST (core/, zero dependencies; 79 tests pass on the host)
+- hash.rs: CRC32, SHA-256, XXH64.
+- inflate.rs: streaming DEFLATE + gzip. zstd.rs: streaming Zstandard decoder (window cap, xxh64 check, no dictionaries).
+- archive.rs: format sniffing by magic bytes; ZIP (central directory) and TAR readers with limits and damaged-entry handling.
+- reader.rs: handle API reader_open / reader_next / reader_close, probe, file_hash. Formats: jsonl, json, csv, tsv, text, md, html, parquet,
+  and zip / tar / gz / zst of those. Limits: line size, decompressed size (bomb guard), whole-file formats, archive entries, zstd window.
+  Errors are returned per item {where, message}; reading continues.
+- parquet.rs: Thrift-compact footer, flat schemas, PLAIN + dictionary encodings, RLE/bit-packed levels, v1/v2 pages,
+  codecs none / snappy / gzip / zstd / lz4_raw. Nested columns skipped with a warning. DELTA encodings return a clear error.
+  Tested against four generated files (800 rows each).
+- html.rs, nlp.rs, unorm.rs: main-content extraction, boilerplate / nav / footer / ad / cookie removal, broken-markup recovery,
+  heading preservation, NFC/NFKC-style normalisation, whitespace, paragraph reconstruction, sentences, language, readability, quality.
+- license.rs: License Gate (allow / review / deny). web.rs: robots.txt rules, domain. intel.rs: Dataset Intelligence accumulators.
+- api.rs: ops reader_*, probe, file_hash, html_extract, clean_text, sentences, reflow, text_quality, license_check, robots_check,
+  domain_of, intel_open / intel_add / intel_finish.
+
+KOTLIN (compiled only by CI)
+- data/Db.kt: DB_VERSION 2. Tables sources and source_versions (additive migration, existing data untouched).
+- net/Downloader.kt: HEAD/Range probe, 8 MB chunks in parallel into a preallocated .part file, sidecar JSON of finished chunks
+  (resume after a cut or restart), ETag / Last-Modified guard (never mixes versions), exponential backoff with jitter,
+  Retry-After on 429/503, per-host spacing, https->http redirect refused, free-space check, size cap.
+- ops/Ingest.kt: importPath / importFile. The engine reads /proc/self/fd/N (no copy); fallback copy to cache for pipes.
+- ops/Sources.kt: fetchSource for URL and JSON API sources. Gate re-checked at fetch time, robots.txt for web pages,
+  SHA-256 verification (and optional expected hash), source metadata, version record, incremental update.
+- ui/SourcesUi.kt: Sources screen, Add-source modal with License Gate, history; Dataset Intelligence screen.
+- ui/DatasetUi.kt: Transfer tab links to both screens.
+
+DECISIONS
+- Downloads run only while the app is open. No foreground service was added (it would need extra permissions and a
+  notification); partial files resume on the next run.
+- API keys are asked per run and never stored.
+- "review" licenses need an explicit acknowledgement and a written reason that is saved with the source.
+- Incremental update = conditional request first, then checksum, then per-record fingerprint skip.
+
+NOT VERIFIED / LIMITS
+- Kotlin was not compiled or run here; the first CI build may report type errors.
+- No device run: real download speed, memory and resume behaviour on a phone are unmeasured.
+- Zstandard dictionaries unsupported. Parquet nested columns and DELTA encodings unsupported.
+- Unicode normalisation has no canonical reordering of stacked combining marks.
+- Download resume was tested by reasoning and unit tests of the pieces, not against a live server.
