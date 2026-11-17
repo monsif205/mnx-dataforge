@@ -45,3 +45,9 @@ FIX 1.0.8 - crash "Padding must be non-negative" (Toggle)
 - Cause: the Toggle knob offset was 20.dp * x, where x comes from a spring animation that overshoots below 0 when a switch turns off.
   A negative padding throws in the next frame. It showed up now because the Add-source dialog has many switches.
 - Fix: x is clamped to 0..1 in Theme.kt (Toggle). All switches in the app were affected, not only the new screen.
+
+FIX 1.0.9 - "Response is larger than 16 MB" and very large downloads
+- Cause: a "JSON API" source pointed at a big file; the API path reads each reply into memory with a 16 MB cap.
+- Fix: an API source whose URL is larger than 24 MB or is not JSON is downloaded as a file (resumable, chunked, streamed).
+- Large files: chunks grow to 32 MB above 2 GB and 64 MB above 20 GB; the resume sidecar is written at most every 2 s.
+- Limit that remains: the file is downloaded fully before import, so storage must hold it (the app checks free space first).

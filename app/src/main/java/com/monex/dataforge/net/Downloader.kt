@@ -176,7 +176,7 @@ class Downloader(private val opt: DlOptions = DlOptions()) {
                 while (true) {
                     val n = ins.read(buf); if (n < 0) break
                     out.write(buf, 0, n)
-                    if (out.size() > maxBytes) throw DownloadException("response is larger than ${maxBytes shr 20} MB")
+                    if (out.size() > maxBytes) throw DownloadException("the response is larger than ${maxBytes.coerceAtLeast(1) / 1024} KB; it is a file, not a small API reply")
                 }
                 return code to out.toByteArray()
             } catch (e: SocketTimeoutException) {
@@ -220,6 +220,9 @@ class Downloader(private val opt: DlOptions = DlOptions()) {
         val remote = probe(url)
         if (ifEtag != null && remote.etag != null && ifEtag == remote.etag) return FetchResult.Unchanged(remote)
         if (ifEtag == null && ifModified != null && remote.lastModified != null && ifModified == remote.lastModified) return FetchResult.Unchanged(remote)
+        // Very large files use bigger chunks so the progress sidecar and thread work stay small (100 GB = 1600 chunks of 64 MB).
+        val eff = when { remote.size > (20L shl 30) -> 64L shl 20; remote.size > (2L shl 30) -> 32L shl 20; else -> opt.chunkBytes }
+        if (eff > opt.chunkBytes) return Downloader(opt.copy(chunkBytes = eff)).fetch(url, dest, ifEtag, ifModified, progress, cancelled)
         if (opt.maxBytes > 0 && remote.size > opt.maxBytes) throw DownloadException("the file is ${remote.size shr 20} MB, above the ${opt.maxBytes shr 20} MB limit you set")
         dest.parentFile?.mkdirs()
         if (remote.size > 0) {
@@ -255,7 +258,11 @@ class Downloader(private val opt: DlOptions = DlOptions()) {
         val workers = minOf(opt.parallel.coerceIn(1, 8), maxOf(1, todo.size))
         val pool = Executors.newFixedThreadPool(workers)
         val sideLock = Any()
-        fun saveSide() = synchronized(sideLock) { try { side.writeText(state.toJson()) } catch (_: IOException) {} }
+        var lastSave = 0L
+        fun saveSide(force: Boolean = true) = synchronized(sideLock) {
+            val t = System.currentTimeMillis()
+            if (force || t - lastSave > 2000) { lastSave = t; try { side.writeText(state.toJson()) } catch (_: IOException) {} }
+        }
         saveSide()
         val host = URL(url).host
         repeat(workers) {
@@ -272,7 +279,7 @@ class Downloader(private val opt: DlOptions = DlOptions()) {
                                 try {
                                     downloadRange(url, host, from, to, raf, r, doneBytes, progress, stop)
                                     synchronized(state) { state.done[ix] = true }
-                                    saveSide()
+                                    saveSide(false)
                                     break
                                 } catch (e: DownloadException) {
                                     if (!e.retryable || attempt >= opt.maxRetries) throw e

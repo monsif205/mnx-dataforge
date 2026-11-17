@@ -102,7 +102,16 @@ fun fetchSource(
     val dl = Downloader(opt)
     val label = src.name.ifBlank { src.url }
     val lim = IngestLimits(maxDecompressedMb = cfg.optLong("max_decompressed_gb", 50).coerceIn(1, 1024) * 1024)
-    return if (src.kind == "api") fetchApi(ctx, repo, ds, src, dl, label, lim, progress, cancelled)
+    // A "JSON API" source that actually points at a big file (Parquet, JSONL, archive...) is downloaded as a file.
+    var asApi = src.kind == "api"
+    if (asApi) {
+        val pr = try { dl.probe(src.url) } catch (e: Exception) { null }
+        if (pr != null && pr.size > 0 && (pr.size > (24L shl 20) || pr.contentType?.contains("json", true) != true)) {
+            Logger.i("sources", "$label: treating the API URL as a file download (${pr.size} bytes, ${pr.contentType})")
+            asApi = false
+        }
+    }
+    return if (asApi) fetchApi(ctx, repo, ds, src, dl, label, lim, progress, cancelled)
     else fetchUrl(ctx, repo, ds, src, dl, label, lim, forceFull, opt, progress, cancelled)
 }
 
