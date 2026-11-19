@@ -7,6 +7,7 @@ pub mod archive;
 pub mod csv;
 pub mod docx;
 pub mod pdf;
+pub mod xlsx;
 pub mod dedup;
 pub mod export;
 pub mod hash;

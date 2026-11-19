@@ -268,6 +268,7 @@ pub fn msg_edit(v: &Value) -> Result<Value, String> {
     let idx = v.get("index").and_then(|x| x.as_f64()).map(|f| f.max(0.0) as usize);
     let mut root = parse(doc).map_err(|e| e.to_string())?;
     let create = matches!(action, "ensure" | "add" | "turns");
+    let _ = ();
     {
         let msgs = messages_mut(&mut root, create)?;
         let need = |msgs: &Vec<Value>| -> Result<usize, String> {
@@ -295,6 +296,37 @@ pub fn msg_edit(v: &Value) -> Result<Value, String> {
             "thinking_remove" => {
                 let i = need(msgs)?;
                 remove_key(&mut msgs[i], "thinking");
+            }
+            "attach_add" | "attach_edit" | "attach_remove" => {
+                let i = need(msgs)?;
+                let mut list: Vec<Value> = msgs[i].get("attachments").and_then(|a| a.as_arr()).map(|a| a.to_vec()).unwrap_or_default();
+                if action == "attach_add" {
+                    let name = s_of(v, "name").unwrap_or("file.txt");
+                    let mime = s_of(v, "mime").unwrap_or("text/plain");
+                    if list.len() >= 64 {
+                        return Err("a message can hold at most 64 attachments".into());
+                    }
+                    list.push(Value::obj(vec![("name", Value::str(name)), ("mime", Value::str(mime)), ("content", Value::str(s_of(v, "content").unwrap_or("")))]));
+                } else {
+                    let a = v.get("attachment").and_then(|x| x.as_f64()).map(|f| f.max(0.0) as usize).ok_or("missing 'attachment' index")?;
+                    if a >= list.len() {
+                        return Err(format!("attachment {} is out of range ({} attachments)", a, list.len()));
+                    }
+                    if action == "attach_remove" {
+                        list.remove(a);
+                    } else {
+                        for k in ["name", "mime", "content"] {
+                            if let Ok(x) = s_of(v, k) {
+                                set_key(&mut list[a], k, Value::str(x));
+                            }
+                        }
+                    }
+                }
+                if list.is_empty() {
+                    remove_key(&mut msgs[i], "attachments");
+                } else {
+                    set_key(&mut msgs[i], "attachments", Value::Arr(list));
+                }
             }
             "up" => {
                 let i = need(msgs)?;
@@ -701,5 +733,26 @@ mod thinking_tests {
         fn default_for(f: &str) -> crate::export::Profile {
             crate::export::Profile::from_value(&parse(&format!(r#"{{"format":"{}"}}"#, f)).unwrap())
         }
+    }
+}
+
+#[cfg(test)]
+mod attach_tests {
+    use super::*;
+    #[test]
+    fn attachments_add_edit_remove_and_export() {
+        let doc = r#"{"messages":[{"role":"user","content":"table?"},{"role":"assistant","content":"here"}]}"#;
+        let q = Value::obj(vec![("doc", Value::str(doc)), ("action", Value::str("attach_add")), ("index", Value::int(1)), ("name", Value::str("t.csv")), ("mime", Value::str("text/csv")), ("content", Value::str("a,b\n1,2"))]);
+        let d = msg_edit(&q).unwrap().get("doc").unwrap().as_str().unwrap().to_string();
+        assert!(d.contains("\"attachments\"") && d.contains("t.csv"), "{}", d);
+        let rec = parse(&d).unwrap();
+        assert!(crate::text::record_text(&rec).contains("a,b"));
+        let prof = |m: &str, f: &str| crate::export::Profile::from_value(&parse(&format!(r#"{{"format":"{}","attachments":"{}"}}"#, f, m)).unwrap());
+        let inl = crate::export::convert(&rec, None, &prof("inline", "messages")).unwrap().to_json();
+        assert!(inl.contains("t.csv") && !inl.contains("\"attachments\""), "{}", inl);
+        assert!(crate::export::convert(&rec, None, &prof("keep", "messages")).unwrap().to_json().contains("\"attachments\""));
+        assert!(!crate::export::convert(&rec, None, &prof("drop", "sharegpt")).unwrap().to_json().contains("t.csv"));
+        let q2 = Value::obj(vec![("doc", Value::str(d)), ("action", Value::str("attach_remove")), ("index", Value::int(1)), ("attachment", Value::int(0))]);
+        assert!(!msg_edit(&q2).unwrap().get("doc").unwrap().as_str().unwrap().contains("attachments"));
     }
 }

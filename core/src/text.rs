@@ -208,6 +208,13 @@ pub fn record_text(v: &Value) -> String {
             if let Some(c) = m.get("content").and_then(|c| c.as_str()) {
                 parts.push(c);
             }
+            if let Some(list) = m.get("attachments").and_then(|a| a.as_arr()) {
+                for a in list {
+                    if let Some(c) = a.get("content").and_then(|c| c.as_str()) {
+                        parts.push(c);
+                    }
+                }
+            }
         }
         return parts.join("\n");
     }

@@ -8,7 +8,7 @@ use std::path::Path;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
-fn decode_entities(s: &str) -> String {
+pub fn decode_entities(s: &str) -> String {
     if !s.contains('&') {
         return s.to_string();
     }

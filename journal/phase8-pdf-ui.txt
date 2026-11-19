@@ -9,3 +9,14 @@ PHASE 8 - 1.0.11
 - UI: header has a gradient scrim so scrolled content fades under the fixed icons; new back arrow with a shaft.
 - Not done yet: XLSX import, message attachments (file inside an assistant answer). Planned next.
 - Kotlin changes are compiled only in CI.
+
+1.0.12
+- core/src/xlsx.rs: XLSX import. First worksheet -> CSV text (shared/inline strings, numbers, booleans, gaps) -> the CSV reader.
+  Dates stay as Excel serial numbers; other sheets are not read. Test file testdata/sample.xlsx. Wired as "xlsx".
+- Attachments: assistant message field "attachments" [{name, mime, content}].
+  msg_edit actions attach_add / attach_edit / attach_remove (max 64 per message). record_text includes attachment content.
+  Export option "attachments": keep | inline | drop (default keep for messages/raw, inline for others;
+  inline appends "[file: name]" + fenced block to the answer text).
+- UI: file cards under assistant messages (name, content, delete), "+ File" and "+ Load file" (picker, up to 2 MB as UTF-8 text),
+  export chips for attachments. Kotlin compiled only in CI.
+- 93 Rust tests pass.

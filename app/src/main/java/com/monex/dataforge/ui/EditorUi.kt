@@ -224,6 +224,18 @@ private fun EditorBody(st: AppState, ds: Dataset, rec: Rec?) {
 @Composable
 private fun ConversationBody(doc: String, onDoc: (String) -> Unit, locked: Boolean) {
     val p = LocalPalette.current
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var attachTo by remember { mutableIntStateOf(-1) }
+    val attachPick = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri: android.net.Uri? ->
+        val target = attachTo
+        attachTo = -1
+        if (uri != null && target >= 0) {
+            val nm = ctx.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: "file.txt"
+            val mime = ctx.contentResolver.getType(uri) ?: "text/plain"
+            val text = runCatching { ctx.contentResolver.openInputStream(uri)?.use { it.readNBytes(2 * 1024 * 1024) }?.toString(Charsets.UTF_8) }.getOrNull()
+            if (text != null) onDoc(msgOp(doc, "attach_add", target) { put("name", nm); put("mime", mime); put("content", text) })
+        }
+    }
     val msgs: List<JSONObject>? = remember(doc) {
         try {
             val a = JSONObject(doc).optJSONArray("messages")
@@ -253,6 +265,25 @@ private fun ConversationBody(doc: String, onDoc: (String) -> Unit, locked: Boole
                         }
                         Field(m.optString("thinking"), { nc -> onDoc(msgOp(doc, "thinking", i) { put("content", nc) }) }, Modifier.fillMaxWidth(), hint = tr("The assistant's reasoning before it answers", "استدلال المساعد قبل الإجابة"), minHeight = 70.dp, enabled = !locked)
                     } else if (!locked) Chip(tr("+ Thinking", "+ تفكير"), false) { onDoc(msgOp(doc, "thinking", i) { put("content", "") }) }
+                }
+                if (role == "assistant") {
+                    val atts = m.optJSONArray("attachments")
+                    if (atts != null) for (a in 0 until atts.length()) {
+                        val at = atts.optJSONObject(a) ?: continue
+                        Glass(Modifier.fillMaxWidth(), strength = 0.4f, radius = 14.dp) {
+                            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Box(Modifier.weight(1f)) { Field(at.optString("name"), { nc -> onDoc(msgOp(doc, "attach_edit", i) { put("attachment", a); put("name", nc) }) }, Modifier.fillMaxWidth(), hint = tr("File name", "اسم الملف"), singleLine = true, mono = true, enabled = !locked) }
+                                    IconBtn(Ic.TRASH, { onDoc(msgOp(doc, "attach_remove", i) { put("attachment", a) }) }, enabled = !locked, tint = p.danger)
+                                }
+                                Field(at.optString("content"), { nc -> onDoc(msgOp(doc, "attach_edit", i) { put("attachment", a); put("content", nc) }) }, Modifier.fillMaxWidth(), hint = tr("File content (CSV table, JSON, text…)", "محتوى الملف (جدول CSV أو JSON أو نص…)"), minHeight = 70.dp, mono = true, enabled = !locked)
+                            }
+                        }
+                    }
+                    if (!locked) ChipRow {
+                        Chip(tr("+ File", "+ ملف"), false) { onDoc(msgOp(doc, "attach_add", i) { put("name", "table.csv"); put("mime", "text/csv"); put("content", "") }) }
+                        Chip(tr("+ Load file", "+ تحميل ملف"), false) { attachTo = i; attachPick.launch(arrayOf("*/*")) }
+                    }
                 }
                 if (m.has("tool_calls") || m.has("metadata") || m.has("annotations")) T(tr("Has extra fields (edit them in JSON view).", "فيها حقول إضافية (حررها في عرض JSON)."), 11.sp, color = p.textDim)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

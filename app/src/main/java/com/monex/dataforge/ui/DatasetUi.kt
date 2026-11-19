@@ -458,6 +458,7 @@ fun TransferTab(st: AppState, ds: Dataset) {
     var meta by remember { mutableStateOf(false) }
     var roles by remember { mutableStateOf("") }
     var thinking by remember { mutableStateOf("") }
+    var attachments by remember { mutableStateOf("") }
     var report by remember { mutableStateOf<String?>(null) }
     val last by ioState<JSONObject?>(null, ds.id, st.rev) { st.repo.lastValidation(ds.id) }
 
@@ -473,7 +474,7 @@ fun TransferTab(st: AppState, ds: Dataset) {
     val exportPick = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri: Uri? ->
         if (uri != null) {
             val rm = roles.split(",").mapNotNull { it.split("=").takeIf { kv -> kv.size == 2 }?.let { kv -> kv[0].trim() to kv[1].trim() } }.toMap()
-            val opts = ExportOptions(container, profile, split, meta, rm, thinking)
+            val opts = ExportOptions(container, profile, split, meta, rm, attachments, thinking)
             st.work(tr("Exporting", "تصدير"), { exportDataset(st.ctx, uri, st.repo, ds, opts, st::progress) { st.cancelFlag.get() } }) { r ->
                 report = tr("Exported ${r.written} records. Integrity: ${r.note}. sha256 ${r.sha256.take(16)}…", "تم تصدير ${r.written} سجل. السلامة: ${r.note}. sha256 ${r.sha256.take(16)}…") +
                     (if (r.errors.isNotEmpty()) "\n" + tr("Skipped:", "تم تخطي:") + "\n" + r.errors.joinToString("\n") else "")
@@ -512,6 +513,14 @@ fun TransferTab(st: AppState, ds: Dataset) {
                     Chip(tr("drop", "حذف"), thinking == "drop") { thinking = "drop" }
                 }
                 T(tr("auto: messages keeps a \"thinking\" field; other formats put it in <think> tags.", "تلقائي: messages تبقي حقل \"thinking\"؛ الصيغ الأخرى تضعه في وسوم <think>."), 11.sp, color = p.textDim)
+                T(tr("Attached files in answers", "الملفات المرفقة في الأجوبة"), 12.sp, FontWeight.SemiBold, p.textDim)
+                ChipRow {
+                    Chip(tr("auto", "تلقائي"), attachments == "") { attachments = "" }
+                    Chip("keep", attachments == "keep") { attachments = "keep" }
+                    Chip(tr("inline", "داخل النص"), attachments == "inline") { attachments = "inline" }
+                    Chip(tr("drop", "حذف"), attachments == "drop") { attachments = "drop" }
+                }
+                T(tr("auto: messages keeps an \"attachments\" field; other formats append each file as a fenced block in the answer.", "تلقائي: messages تبقي حقل \"attachments\"؛ الصيغ الأخرى تضيف كل ملف ككتلة داخل الجواب."), 11.sp, color = p.textDim)
                 T(tr("Split", "القسم"), 12.sp, FontWeight.SemiBold, p.textDim)
                 ChipRow { Chip(tr("All", "الكل"), split == null) { split = null }; SPLITS.forEach { s -> Chip(s, split == s) { split = s } } }
                 Toggle(meta, { meta = it }, tr("Include provenance metadata (origin, source, license)", "تضمين بيانات المصدر (المصدر، الترخيص)"))

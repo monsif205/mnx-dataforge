@@ -67,7 +67,7 @@ fun SourcesScreen(st: AppState, datasetId: String) {
                     T(tr("Downloads and licensed sources", "التنزيل والمصادر المرخصة"), 16.sp, FontWeight.SemiBold)
                     T(tr("A source is accepted only after the License Gate. Files are downloaded in resumable parallel chunks, verified with SHA-256, read as a stream, and each version is recorded. \"Update\" fetches only what changed. Downloads run while the app is open; if Android stops the app or the network drops, the next start continues from the saved chunks.",
                         "لا يقبل أي مصدر إلا بعد بوابة الترخيص. تنزل الملفات بأجزاء متوازية قابلة للاستئناف، وتتحقق بـ SHA-256، وتقرأ تدفقيا، ويسجل كل إصدار. \"تحديث\" يجلب ما تغير فقط. التنزيل يعمل والتطبيق مفتوح؛ إذا أوقف أندرويد التطبيق أو انقطعت الشبكة يكمل التشغيل التالي من الأجزاء المحفوظة."), 12.sp, color = p.textDim)
-                    T(tr("Supported: JSONL, JSON, CSV, TSV, TXT, MD, HTML pages, Parquet, DOCX, PDF (text only, no OCR), and ZIP / TAR / gzip / Zstandard of those.", "المدعوم: JSONL وJSON وCSV وTSV وTXT وMD وصفحات HTML وParquet وDOCX وPDF (نص فقط، بلا OCR) وأرشيفات ZIP وTAR وgzip وZstandard منها."), 12.sp, color = p.textDim)
+                    T(tr("Supported: JSONL, JSON, CSV, TSV, TXT, MD, HTML pages, Parquet, DOCX, XLSX (first sheet), PDF (text only, no OCR), and ZIP / TAR / gzip / Zstandard of those.", "المدعوم: JSONL وJSON وCSV وTSV وTXT وMD وصفحات HTML وParquet وDOCX وXLSX (الورقة الأولى) وPDF (نص فقط، بلا OCR) وأرشيفات ZIP وTAR وgzip وZstandard منها."), 12.sp, color = p.textDim)
                 }
             }
             JobsCard(st, d) { report = it }

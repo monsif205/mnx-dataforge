@@ -758,6 +758,7 @@ fn supported_ext(name: &str) -> Option<&'static str> {
         "parquet" => "parquet",
         "docx" => "docx",
         "pdf" => "pdf",
+        "xlsx" => "xlsx",
         _ => return None,
     })
 }
@@ -822,6 +823,20 @@ fn leaf(name: &str, stream: Stream, lim: &Limits, hint: Option<&str>) -> Result<
             } else {
                 Box::new(TextLines { r: r2, name: nm, cap: lim.max_line_bytes, paragraphs: true, buf: Vec::new(), done: false, cur: String::new(), start_line: 0, line: 0 })
             }
+        }
+        "xlsx" => {
+            let tmp = lim.tmp_dir.join(format!("mnx_spool_{}_{}.xlsx", std::process::id(), SPOOL.fetch_add(1, Ordering::Relaxed)));
+            let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+            let res = io::copy(&mut r, &mut f);
+            drop(f);
+            let text = match res {
+                Ok(_) => crate::xlsx::extract(&tmp, lim.whole_file_cap.max(64 << 20)),
+                Err(e) => Err(format!("could not read the workbook: {}", e)),
+            };
+            let _ = std::fs::remove_file(&tmp);
+            let text = text?;
+            let r2 = bufread(Box::new(io::Cursor::new(text.into_bytes())));
+            Box::new(CsvRecords { r: r2, name: nm, cap: lim.max_line_bytes, delim: Some(','), header: None, line: 0, buf: Vec::new(), done: false })
         }
         "parquet" => {
             // Parquet needs random access: spool to a temporary file (bounded by the file limit), then read it.
@@ -914,7 +929,12 @@ pub fn open_source(path: &Path, name: &str, lim: &Limits) -> Result<Opened, Stri
     let mut warnings = Vec::new();
     let counted = |f: std::fs::File| -> Stream { Box::new(Counting { inner: BufReader::with_capacity(256 * 1024, f), count: count.clone() }) };
     let is_docx = kind == Kind::Zip && name.to_lowercase().ends_with(".docx");
+    let is_xlsx = kind == Kind::Zip && name.to_lowercase().ends_with(".xlsx");
     let (src, format): (Box<dyn Records>, String) = match kind {
+        Kind::Zip if is_xlsx => {
+            let r = leaf(name, counted(f), lim, Some("xlsx"))?;
+            (r, "xlsx".to_string())
+        }
         Kind::Zip if is_docx => {
             let r = leaf(name, counted(f), lim, Some("docx"))?;
             (r, "docx".to_string())
@@ -1403,6 +1423,17 @@ mod resume_tests {
         let recs = drain(o.get("handle").unwrap().as_f64().unwrap());
         let all: String = recs.iter().map(|r| r.get("text").unwrap().as_str().unwrap().to_string()).collect::<Vec<_>>().join("|");
         assert!(all.contains("MNX DataForge test document") && all.contains("Page two content"), "{}", all);
+    }
+
+    #[test]
+    fn xlsx_is_read_as_rows() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/sample.xlsx");
+        let q = parse(&format!("{{\"path\":\"{}\",\"name\":\"sample.xlsx\"}}", p.display())).unwrap();
+        let o = op_open(&q).unwrap();
+        assert_eq!(o.get("format").unwrap().as_str().unwrap(), "xlsx");
+        let recs = drain(o.get("handle").unwrap().as_f64().unwrap());
+        assert_eq!(recs.len(), 2);
+        assert!(recs[0].to_json().contains("\"name\":\"Ali\""), "{}", recs[0].to_json());
     }
 }
 

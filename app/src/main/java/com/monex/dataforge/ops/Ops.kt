@@ -56,6 +56,7 @@ data class ExportOptions(
     val split: String?,           // null = all
     val includeMetadata: Boolean,
     val roleMap: Map<String, String> = emptyMap(),
+    val attachments: String = "", // "" = default | keep | inline | drop
     val thinking: String = ""     // "" = default for the format | keep | reasoning_content | tags | drop
 )
 
@@ -67,7 +68,7 @@ private fun metaOf(r: Rec): JSONObject = JSONObject().put("id", r.id).put("origi
 private fun profileJson(o: ExportOptions): JSONObject {
     val rm = JSONObject()
     o.roleMap.forEach { (k, v) -> if (v.isNotBlank()) rm.put(k, v) }
-    return JSONObject().put("format", o.profile).put("include_metadata", o.includeMetadata).put("role_map", rm).also { if (o.thinking.isNotEmpty()) it.put("thinking", o.thinking) }
+    return JSONObject().put("format", o.profile).put("include_metadata", o.includeMetadata).put("role_map", rm).also { if (o.thinking.isNotEmpty()) it.put("thinking", o.thinking); if (o.attachments.isNotEmpty()) it.put("attachments", o.attachments) }
 }
 
 /** Converted JSON lines for one chunk, plus per-record errors. */
