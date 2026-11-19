@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- INTERNET is used ONLY when you press "Check for updates" (GitHub Releases) or fetch a source you registered. No background network, no telemetry.
+    <!-- INTERNET is used ONLY when you press "Check for updates" (GitHub Releases) or fetch a source you registered. Background network only for downloads you start with "Run in background" (a visible notification with a Stop button); no telemetry.
          REQUEST_INSTALL_PACKAGES lets the system installer open the downloaded update. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application
         android:name=".DfApp"
         android:allowBackup="false"
@@ -21,6 +24,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <service
+            android:name=".ops.BackgroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"

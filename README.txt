@@ -109,3 +109,5 @@ LICENSE
 PDF: text is extracted from PDF files (no OCR; scanned or encrypted PDFs are reported, not imported).
 
 XLSX: the first worksheet is imported as rows. Attachments: assistant messages can carry files (CSV/JSON/text) exported as a field or inline.
+
+Background: "In background" runs downloads/imports in a foreground service with a notification and Stop button (Android 15 limits data-sync services to ~6h/day; progress is saved).

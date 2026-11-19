@@ -20,3 +20,14 @@ PHASE 8 - 1.0.11
 - UI: file cards under assistant messages (name, content, delete), "+ File" and "+ Load file" (picker, up to 2 MB as UTF-8 text),
   export chips for attachments. Kotlin compiled only in CI.
 - 93 Rust tests pass.
+
+1.0.13 - background installation
+- ops/Background.kt: BackgroundService (foreground service, type dataSync, notification with Stop) + BgQueue (queue, status, last report).
+  Tasks: Fetch(source) and Resume(unfinished import). Runs the same fetchSource/runJob (checkpointed), so a kill or the Android 15
+  ~6h/day dataSync limit (onTimeout) only pauses; "Unfinished imports" resumes later.
+- data/Db.kt: Shared.repo(ctx) = one Repo for UI and service (AppState uses it).
+- Manifest: FOREGROUND_SERVICE, FOREGROUND_SERVICE_DATA_SYNC, POST_NOTIFICATIONS, <service>.
+- UI (Sources): "In background" on each source (not for sources needing an API key: keys are never stored) and on unfinished imports;
+  a card with live status, Stop, and the last background report. Notification permission asked on first use.
+- Not done: auto-start after reboot, WorkManager scheduling (periodic update checks), Wi-Fi-only / charging-only conditions.
+- Kotlin compiled only in CI; never run on a device.

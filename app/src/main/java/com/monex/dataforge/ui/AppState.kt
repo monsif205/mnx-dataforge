@@ -56,7 +56,7 @@ val SPLITS = listOf("train", "validation", "test", "unassigned")
 
 class AppState(val ctx: Context) {
     val prefs = ctx.getSharedPreferences("df", Context.MODE_PRIVATE)
-    val repo = Repo(Db(ctx))
+    val repo = com.monex.dataforge.data.Shared.repo(ctx)
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     var themeMode by mutableStateOf(prefs.getString("theme", "system") ?: "system")

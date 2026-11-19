@@ -48,6 +48,15 @@ fun SourcesScreen(st: AppState, datasetId: String) {
     var keyFor by remember { mutableStateOf<Pair<Source, Boolean>?>(null) }
     var deleteId by remember { mutableStateOf<Source?>(null) }
 
+    val notifPerm = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
+    fun background(src: Source) {
+        if (android.os.Build.VERSION.SDK_INT >= 33 && androidx.core.content.ContextCompat.checkSelfPermission(st.ctx, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+            notifPerm.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        com.monex.dataforge.ops.BgQueue.enqueue(st.ctx, com.monex.dataforge.ops.BgTask.Fetch(d.id, src.id, false, src.name))
+        st.toast(tr("Running in the background. You can close the app.", "يعمل في الخلفية. يمكنك إغلاق التطبيق."))
+    }
+    val bgActive = com.monex.dataforge.ops.BgQueue.active
+    androidx.compose.runtime.LaunchedEffect(bgActive) { st.bump() }
     fun runFetch(src: Source, key: String?, full: Boolean) {
         st.work(tr("Fetching ${src.name}", "جلب ${src.name}"), {
             fetchSource(st.ctx, st.repo, d, src, key, full, st::progress) { st.cancelFlag.get() }
@@ -65,9 +74,16 @@ fun SourcesScreen(st: AppState, datasetId: String) {
             Glass(Modifier.fillMaxWidth(), strength = 0.55f) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     T(tr("Downloads and licensed sources", "التنزيل والمصادر المرخصة"), 16.sp, FontWeight.SemiBold)
-                    T(tr("A source is accepted only after the License Gate. Files are downloaded in resumable parallel chunks, verified with SHA-256, read as a stream, and each version is recorded. \"Update\" fetches only what changed. Downloads run while the app is open; if Android stops the app or the network drops, the next start continues from the saved chunks.",
-                        "لا يقبل أي مصدر إلا بعد بوابة الترخيص. تنزل الملفات بأجزاء متوازية قابلة للاستئناف، وتتحقق بـ SHA-256، وتقرأ تدفقيا، ويسجل كل إصدار. \"تحديث\" يجلب ما تغير فقط. التنزيل يعمل والتطبيق مفتوح؛ إذا أوقف أندرويد التطبيق أو انقطعت الشبكة يكمل التشغيل التالي من الأجزاء المحفوظة."), 12.sp, color = p.textDim)
+                    T(tr("A source is accepted only after the License Gate. Files are downloaded in resumable parallel chunks, verified with SHA-256, read as a stream, and each version is recorded. \"Update\" fetches only what changed. Use "In background" to keep downloading and importing with the app closed (a notification with Stop is shown); if Android stops the work or the network drops, it continues from the saved chunks.",
+                        "لا يقبل أي مصدر إلا بعد بوابة الترخيص. تنزل الملفات بأجزاء متوازية قابلة للاستئناف، وتتحقق بـ SHA-256، وتقرأ تدفقيا، ويسجل كل إصدار. \"تحديث\" يجلب ما تغير فقط. استعمل "في الخلفية" لمتابعة التنزيل والاستيراد والتطبيق مغلق (يظهر إشعار فيه إيقاف)؛ إذا توقف العمل أو انقطعت الشبكة يكمل من الأجزاء المحفوظة."), 12.sp, color = p.textDim)
                     T(tr("Supported: JSONL, JSON, CSV, TSV, TXT, MD, HTML pages, Parquet, DOCX, XLSX (first sheet), PDF (text only, no OCR), and ZIP / TAR / gzip / Zstandard of those.", "المدعوم: JSONL وJSON وCSV وTSV وTXT وMD وصفحات HTML وParquet وDOCX وXLSX (الورقة الأولى) وPDF (نص فقط، بلا OCR) وأرشيفات ZIP وTAR وgzip وZstandard منها."), 12.sp, color = p.textDim)
+                }
+            }
+            if (bgActive || com.monex.dataforge.ops.BgQueue.lastReport.isNotBlank()) Glass(Modifier.fillMaxWidth(), strength = 0.6f) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    T(if (bgActive) tr("Running in the background", "يعمل في الخلفية") else tr("Last background run", "آخر تشغيل في الخلفية"), 15.sp, FontWeight.SemiBold)
+                    T(if (bgActive) com.monex.dataforge.ops.BgQueue.status else com.monex.dataforge.ops.BgQueue.lastReport, 12.sp, color = p.textDim, mono = true)
+                    if (bgActive) GButton(tr("Stop", "إيقاف"), { com.monex.dataforge.ops.BgQueue.cancelAll() }, danger = true)
                 }
             }
             JobsCard(st, d) { report = it }
@@ -90,6 +106,7 @@ fun SourcesScreen(st: AppState, datasetId: String) {
                         if (s.licenseNote.isNotBlank()) T(s.licenseNote, 12.sp, color = p.textDim)
                         ChipRow {
                             GButton(if (s.lastImport > 0) tr("Update", "تحديث") else tr("Fetch", "جلب"), { start(s, false) }, icon = Ic.BOLT, accent = true, enabled = !d.locked)
+                            if (!(s.kind == "api" && s.config.optString("header_name").isNotBlank())) GButton(tr("In background", "في الخلفية"), { background(s) }, enabled = !d.locked)
                             if (s.lastImport > 0) GButton(tr("Full re-import", "إعادة كاملة"), { start(s, true) }, enabled = !d.locked)
                             GButton(if (expanded == s.id) tr("Hide history", "إخفاء السجل") else tr("History", "السجل"), { expanded = if (expanded == s.id) null else s.id })
                             GButton("", { deleteId = s }, icon = Ic.TRASH, danger = true)
@@ -388,6 +405,10 @@ fun JobsCard(st: AppState, ds: Dataset, onReport: (String) -> Unit) {
                                 onReport(tr("Resumed: imported ${r.imported} more, rejected ${r.rejected}${if (r.cancelled) " (paused again)" else ""}.", "تم الاستئناف: استورد ${r.imported} إضافية، رُفض ${r.rejected}${if (r.cancelled) " (توقف مجددا)" else ""}."))
                             }
                         }, icon = Ic.PLAY, accent = true, enabled = !ds.locked)
+                        GButton(tr("In background", "في الخلفية"), {
+                            com.monex.dataforge.ops.BgQueue.enqueue(st.ctx, com.monex.dataforge.ops.BgTask.Resume(ds.id, j.id, j.name))
+                            st.toast(tr("Resuming in the background.", "الاستئناف في الخلفية."))
+                        }, enabled = !ds.locked)
                         GButton(tr("Discard", "تجاهل"), { discard = j }, icon = Ic.TRASH, danger = true)
                     }
                 }

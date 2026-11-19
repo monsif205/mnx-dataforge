@@ -119,6 +119,12 @@ private fun SQLiteStatement.bindS(i: Int, s: String?) {
     if (s == null) bindNull(i) else bindString(i, s)
 }
 
+/** One database connection pool for the whole process (the UI and the background service share it). */
+object Shared {
+    @Volatile private var repo: Repo? = null
+    fun repo(ctx: Context): Repo = repo ?: synchronized(this) { repo ?: Repo(Db(ctx.applicationContext)).also { repo = it } }
+}
+
 class Repo(private val helper: Db) {
     private val w: SQLiteDatabase get() = helper.writableDatabase
     private fun now() = System.currentTimeMillis()
