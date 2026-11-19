@@ -55,7 +55,8 @@ data class ExportOptions(
     val profile: String,          // messages | sharegpt | alpaca | chatml | raw
     val split: String?,           // null = all
     val includeMetadata: Boolean,
-    val roleMap: Map<String, String> = emptyMap()
+    val roleMap: Map<String, String> = emptyMap(),
+    val thinking: String = ""     // "" = default for the format | keep | reasoning_content | tags | drop
 )
 
 data class ExportResult(val written: Int, val errors: List<String>, val sha256: String, val verified: Boolean, val note: String)
@@ -66,7 +67,7 @@ private fun metaOf(r: Rec): JSONObject = JSONObject().put("id", r.id).put("origi
 private fun profileJson(o: ExportOptions): JSONObject {
     val rm = JSONObject()
     o.roleMap.forEach { (k, v) -> if (v.isNotBlank()) rm.put(k, v) }
-    return JSONObject().put("format", o.profile).put("include_metadata", o.includeMetadata).put("role_map", rm)
+    return JSONObject().put("format", o.profile).put("include_metadata", o.includeMetadata).put("role_map", rm).also { if (o.thinking.isNotEmpty()) it.put("thinking", o.thinking) }
 }
 
 /** Converted JSON lines for one chunk, plus per-record errors. */

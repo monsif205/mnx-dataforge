@@ -15,7 +15,7 @@ import java.security.MessageDigest
 import java.util.UUID
 
 const val DB_NAME = "dataforge.db"
-const val DB_VERSION = 2
+const val DB_VERSION = 3
 
 
 /** Schema added in version 2: registered data sources and their fetched versions. */
@@ -24,6 +24,12 @@ val SOURCES_DDL = listOf(
     "CREATE INDEX IF NOT EXISTS idx_src_ds ON sources(dataset_id)",
     "CREATE TABLE IF NOT EXISTS source_versions(id TEXT PRIMARY KEY, source_id TEXT NOT NULL, ts INTEGER, etag TEXT, last_modified TEXT, size INTEGER, sha256 TEXT, imported INTEGER, skipped INTEGER, rejected INTEGER, note TEXT)",
     "CREATE INDEX IF NOT EXISTS idx_srcver_src ON source_versions(source_id)"
+)
+
+/** Schema added in version 3: resumable import jobs (progress is saved with every batch). */
+val JOBS_DDL = listOf(
+    "CREATE TABLE IF NOT EXISTS import_jobs(id TEXT PRIMARY KEY, dataset_id TEXT NOT NULL, kind TEXT NOT NULL, location TEXT NOT NULL, name TEXT, license TEXT, label TEXT, consumed INTEGER DEFAULT 0, imported INTEGER DEFAULT 0, skipped INTEGER DEFAULT 0, rejected INTEGER DEFAULT 0, state TEXT, message TEXT, source_id TEXT, incremental INTEGER DEFAULT 0, extra TEXT DEFAULT '{}', created INTEGER, updated INTEGER)",
+    "CREATE INDEX IF NOT EXISTS idx_jobs_ds ON import_jobs(dataset_id)"
 )
 
 class Db(private val ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERSION) {
@@ -54,11 +60,13 @@ class Db(private val ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VER
         )
         ddl.forEach { db.execSQL(it) }
         SOURCES_DDL.forEach { db.execSQL(it) }
+        JOBS_DDL.forEach { db.execSQL(it) }
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         // Ordered, additive migrations. Existing data is never touched.
         if (oldVersion < 2) SOURCES_DDL.forEach { db.execSQL(it) }
+        if (oldVersion < 3) JOBS_DDL.forEach { db.execSQL(it) }
     }
 
     fun dbFile(): File = ctx.getDatabasePath(DB_NAME)
@@ -85,6 +93,11 @@ data class Source(
     val licenseStatus: String, val licenseNote: String, val etag: String?, val lastModified: String?, val size: Long,
     val sha256: String?, val expectedSha256: String?, val meta: JSONObject, val config: JSONObject, val created: Long,
     val lastChecked: Long, val lastImport: Long
+)
+data class ImportJob(
+    val id: String, val datasetId: String, val kind: String, val location: String, val name: String, val license: String, val label: String,
+    val consumed: Long, val imported: Int, val skipped: Int, val rejected: Int, val state: String, val message: String,
+    val sourceId: String?, val incremental: Boolean, val extra: JSONObject, val updated: Long
 )
 data class SourceVersion(val id: String, val ts: Long, val etag: String?, val lastModified: String?, val size: Long, val sha256: String?, val imported: Int, val skipped: Int, val rejected: Int, val note: String)
 data class VersionInfo(val id: String, val number: Int, val label: String, val created: Long, val count: Int)
@@ -198,6 +211,7 @@ class Repo(private val helper: Db) {
     fun deleteDataset(id: String) {
         w.beginTransaction()
         try {
+            w.execSQL("DELETE FROM import_jobs WHERE dataset_id=?", arrayOf<Any?>(id))
             w.execSQL("DELETE FROM source_versions WHERE source_id IN (SELECT id FROM sources WHERE dataset_id=?)", arrayOf<Any?>(id))
             w.execSQL("DELETE FROM sources WHERE dataset_id=?", arrayOf<Any?>(id))
             w.execSQL("DELETE FROM records_fts WHERE docid IN (SELECT seq FROM records WHERE dataset_id=?)", arrayOf<Any?>(id))
@@ -515,6 +529,48 @@ class Repo(private val helper: Db) {
         w.rawQuery("SELECT $recCols FROM records WHERE dataset_id=? AND seq>? ORDER BY seq LIMIT $limit", arrayOf(ds, afterSeq.toString())).use { c -> while (c.moveToNext()) out.add(readRec(c)) }
         return out
     }
+
+
+    // ---------- resumable import jobs ----------
+    /** Runs [block] in one transaction (nesting is fine). Used so a batch and its progress marker are saved together. */
+    fun <T> tx(block: () -> T): T {
+        w.beginTransaction()
+        try { val r = block(); w.setTransactionSuccessful(); return r } finally { w.endTransaction() }
+    }
+
+    private val jobCols = "id,dataset_id,kind,location,name,license,label,consumed,imported,skipped,rejected,state,message,source_id,incremental,extra,updated"
+    private fun readJob(c: android.database.Cursor) = ImportJob(
+        c.getString(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4) ?: "", c.getString(5) ?: "", c.getString(6) ?: "",
+        c.getLong(7), c.getInt(8), c.getInt(9), c.getInt(10), c.getString(11) ?: "paused", c.getString(12) ?: "", c.getString(13), c.getInt(14) == 1,
+        try { JSONObject(c.getString(15) ?: "{}") } catch (e: Exception) { JSONObject() }, c.getLong(16)
+    )
+
+    fun createJob(ds: String, kind: String, location: String, name: String, license: String, label: String, sourceId: String?, incremental: Boolean, extra: JSONObject): ImportJob {
+        val id = uid()
+        w.execSQL(
+            "INSERT INTO import_jobs(id,dataset_id,kind,location,name,license,label,state,source_id,incremental,extra,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            arrayOf<Any?>(id, ds, kind, location, name, license, label, "running", sourceId, if (incremental) 1 else 0, extra.toString(), now(), now())
+        )
+        return job(id)!!
+    }
+
+    fun job(id: String): ImportJob? = w.rawQuery("SELECT $jobCols FROM import_jobs WHERE id=?", arrayOf(id)).use { c -> if (c.moveToFirst()) readJob(c) else null }
+
+    fun jobs(ds: String): List<ImportJob> {
+        val out = ArrayList<ImportJob>()
+        w.rawQuery("SELECT $jobCols FROM import_jobs WHERE dataset_id=? ORDER BY created DESC", arrayOf(ds)).use { c -> while (c.moveToNext()) out.add(readJob(c)) }
+        return out
+    }
+
+    fun saveJobProgress(id: String, consumed: Long, imported: Int, skipped: Int, rejected: Int) =
+        w.execSQL("UPDATE import_jobs SET consumed=?, imported=?, skipped=?, rejected=?, state='running', updated=? WHERE id=?", arrayOf<Any?>(consumed, imported, skipped, rejected, now(), id))
+
+    fun setJobState(id: String, state: String, message: String) =
+        w.execSQL("UPDATE import_jobs SET state=?, message=?, updated=? WHERE id=?", arrayOf<Any?>(state, message, now(), id))
+
+    fun setJobExtra(id: String, extra: JSONObject) = w.execSQL("UPDATE import_jobs SET extra=?, updated=? WHERE id=?", arrayOf<Any?>(extra.toString(), now(), id))
+
+    fun deleteJob(id: String) = w.execSQL("DELETE FROM import_jobs WHERE id=?", arrayOf<Any?>(id))
 
     // ---------- statistics ----------
     fun groupCounts(ds: String, column: String): Map<String, Int> {

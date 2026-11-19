@@ -29,14 +29,23 @@ WHAT YOU CAN DO
   Edit              Structured record editor with role chips, add / duplicate /
                     split / merge / reorder messages, undo/redo, draft
                     recovery, and a JSON view for full control.
-  Import            JSONL, JSON, CSV, TSV, TXT, Markdown, HTML pages, Parquet,
-                    and ZIP / TAR / gzip / Zstandard archives of those. Size
+  Import            JSONL, JSON, CSV, TSV, TXT, Markdown, HTML pages, DOCX,
+                    Parquet, and ZIP / TAR / gzip / Zstandard archives of those. Size
                     and decompression limits, corrupt-data detection and
                     per-error logging: a bad line, row group or archive entry
                     is skipped and logged, the rest is still imported.
                     ShareGPT, Alpaca and prompt/completion formats are
                     converted automatically. Markdown conversations are
                     understood.
+  Resume            Import progress is saved with every batch (same database
+                    transaction). If the app is closed, killed or crashes, an
+                    "Unfinished imports" list offers Resume (continues where it
+                    stopped, nothing imported twice) or Discard. Downloads keep
+                    their finished chunks and resume the same way.
+  Thinking          Assistant messages can carry a "thinking" field (editor,
+                    Quick Write "Thinking:" lines, import of reasoning_content
+                    and <think> tags). Export: keep, reasoning_content, <think>
+                    tags, or drop.
   Sources           Register a file URL, web page or JSON API. License Gate
                     first (allow / needs your decision / blocked). Resumable,
                     parallel, chunked downloads with retry, Retry-After and

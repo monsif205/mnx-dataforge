@@ -65,7 +65,7 @@ pub fn preview(v: &Value) -> Result<Value, String> {
 
 // ---------------------------------------------------------------- Quick Write: Enter key
 
-const CONV: [&str; 4] = ["System", "User", "Assistant", "Tool"];
+const CONV: [&str; 5] = ["System", "User", "Assistant", "Tool", "Thinking"];
 
 fn labels_for(conversation: bool, fields: &[String]) -> Vec<String> {
     if conversation {
@@ -95,6 +95,7 @@ fn canon(label: &str, labels: &[String], conversation: bool) -> Option<String> {
         match low.as_str() {
             "human" => return Some("User".into()),
             "ai" | "gpt" | "bot" | "model" => return Some("Assistant".into()),
+            "reasoning" | "think" | "thought" => return Some("Thinking".into()),
             _ => {}
         }
     }
@@ -119,6 +120,7 @@ fn next_label(cur: Option<&str>, conversation: bool, fields: &[String]) -> Strin
             Some("Assistant") => "User",
             Some("System") => "User",
             Some("Tool") => "Assistant",
+            Some("Thinking") => "Assistant",
             _ => "User",
         }
         .to_string();
@@ -172,6 +174,50 @@ fn set_key(obj: &mut Value, key: &str, val: Value) {
     } else {
         *obj = Value::Obj(vec![(key.to_string(), val)]);
     }
+}
+
+fn remove_key(obj: &mut Value, key: &str) {
+    if let Value::Obj(items) = obj {
+        items.retain(|(k, _)| k != key);
+    }
+}
+
+/// Moves reasoning that other formats keep in "reasoning_content" / "reasoning" or inside <think> tags into the
+/// "thinking" field of assistant messages. Returns true when anything changed.
+pub fn normalize_thinking(msgs: &mut [Value]) -> bool {
+    let mut changed = false;
+    for m in msgs.iter_mut() {
+        if sget(m, "role") != Some("assistant") {
+            continue;
+        }
+        for k in ["reasoning_content", "reasoning"] {
+            if let Some(t) = sget(m, k).map(|s| s.to_string()) {
+                if m.get("thinking").is_none() && !t.trim().is_empty() {
+                    set_key(m, "thinking", Value::str(t));
+                }
+                remove_key(m, k);
+                changed = true;
+            }
+        }
+        if let Some(c) = sget(m, "content").map(|s| s.to_string()) {
+            let lead = c.trim_start();
+            for (open, close) in [("<think>", "</think>"), ("<thinking>", "</thinking>")] {
+                if lead.starts_with(open) {
+                    if let Some(end) = lead.find(close) {
+                        let inner = lead[open.len()..end].trim().to_string();
+                        let rest = lead[end + close.len()..].trim_start().to_string();
+                        if m.get("thinking").is_none() {
+                            set_key(m, "thinking", Value::str(inner));
+                        }
+                        set_key(m, "content", Value::str(rest));
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    changed
 }
 
 fn messages_mut(root: &mut Value, create: bool) -> Result<&mut Vec<Value>, String> {
@@ -242,6 +288,14 @@ pub fn msg_edit(v: &Value) -> Result<Value, String> {
                 let i = need(msgs)?;
                 set_key(&mut msgs[i], "content", Value::str(s_of(v, "content")?));
             }
+            "thinking" => {
+                let i = need(msgs)?;
+                set_key(&mut msgs[i], "thinking", Value::str(s_of(v, "content")?));
+            }
+            "thinking_remove" => {
+                let i = need(msgs)?;
+                remove_key(&mut msgs[i], "thinking");
+            }
             "up" => {
                 let i = need(msgs)?;
                 if i > 0 {
@@ -305,7 +359,18 @@ pub fn msg_edit(v: &Value) -> Result<Value, String> {
 
 fn adapt_one(o: &Value) -> Option<(Value, bool)> {
     if o.get("messages").is_some() {
-        return Some((o.clone(), false));
+        let mut c = o.clone();
+        let mut changed = false;
+        if let Value::Obj(items) = &mut c {
+            for (k, v) in items.iter_mut() {
+                if k == "messages" {
+                    if let Value::Arr(ms) = v {
+                        changed = normalize_thinking(ms);
+                    }
+                }
+            }
+        }
+        return Some((c, changed));
     }
     if let Some(conv) = o.get("conversations") {
         let arr = conv.as_arr()?;
@@ -320,6 +385,7 @@ fn adapt_one(o: &Value) -> Option<(Value, bool)> {
             };
             msgs.push(Value::obj(vec![("role", Value::str(role)), ("content", Value::str(sget(m, "value").unwrap_or("")))]));
         }
+        normalize_thinking(&mut msgs);
         return Some((Value::obj(vec![("messages", Value::Arr(msgs))]), true));
     }
     let user = if let Some(ins) = sget(o, "instruction") {
@@ -338,7 +404,14 @@ fn adapt_one(o: &Value) -> Option<(Value, bool)> {
         }
     }
     msgs.push(Value::obj(vec![("role", Value::str("user")), ("content", Value::str(user))]));
-    msgs.push(Value::obj(vec![("role", Value::str("assistant")), ("content", Value::str(answer))]));
+    let mut am = vec![("role", Value::str("assistant")), ("content", Value::str(answer))];
+    if let Some(t) = sget(o, "thinking").or_else(|| sget(o, "reasoning")).or_else(|| sget(o, "reasoning_content")) {
+        if !t.trim().is_empty() {
+            am.insert(1, ("thinking", Value::str(t)));
+        }
+    }
+    msgs.push(Value::obj(am));
+    normalize_thinking(&mut msgs);
     Some((Value::obj(vec![("messages", Value::Arr(msgs))]), true))
 }
 
@@ -572,5 +645,61 @@ mod tests {
         assert_eq!(mk(12).get("available").unwrap().as_bool(), Some(false));
         assert_eq!(mk(1).get("size").unwrap().as_f64(), Some(5000.0));
         assert!(release_info(&Value::obj(vec![("json", Value::str("{\"tag_name\":\"nightly\"}"))])).is_err());
+    }
+}
+
+#[cfg(test)]
+mod thinking_tests {
+    use super::*;
+    use crate::json::parse;
+
+    #[test]
+    fn edit_add_and_remove_thinking() {
+        let doc = r#"{"messages":[{"role":"user","content":"q"},{"role":"assistant","content":"a"}]}"#;
+        let q = Value::obj(vec![("doc", Value::str(doc)), ("action", Value::str("thinking")), ("index", Value::int(1)), ("content", Value::str("step by step"))]);
+        let out = msg_edit(&q).unwrap();
+        let d = out.get("doc").unwrap().as_str().unwrap().to_string();
+        assert!(d.contains("\"thinking\": \"step by step\""), "{}", d);
+        let q2 = Value::obj(vec![("doc", Value::str(d)), ("action", Value::str("thinking_remove")), ("index", Value::int(1))]);
+        assert!(!msg_edit(&q2).unwrap().get("doc").unwrap().as_str().unwrap().contains("thinking"));
+    }
+
+    #[test]
+    fn import_forms_become_thinking() {
+        let r = parse(r#"{"records":[
+          {"messages":[{"role":"user","content":"q"},{"role":"assistant","content":"<think>because</think>\n\nanswer"}]},
+          {"messages":[{"role":"user","content":"q"},{"role":"assistant","content":"a","reasoning_content":"why"}]},
+          {"instruction":"i","output":"o","reasoning":"r"},
+          {"messages":[{"role":"user","content":"q"},{"role":"assistant","content":"plain"}]}]}"#).unwrap();
+        let out = adapt(&r).unwrap();
+        let recs = out.get("records").unwrap().as_arr().unwrap();
+        let ch = out.get("changed").unwrap().as_arr().unwrap();
+        assert!(recs[0].to_json().contains("\"thinking\":\"because\"") && recs[0].to_json().contains("\"content\":\"answer\""));
+        assert!(recs[1].to_json().contains("\"thinking\":\"why\"") && !recs[1].to_json().contains("reasoning_content"));
+        assert!(recs[2].to_json().contains("\"thinking\":\"r\""));
+        assert_eq!(ch[3].as_bool(), Some(false));
+        assert_eq!(ch[0].as_bool(), Some(true));
+    }
+
+    #[test]
+    fn quick_write_and_export_modes() {
+        let b = crate::script::build(&parse(r#"{"text":"User: hi\nThinking: the user greets\nAssistant: hello"}"#).unwrap()).unwrap();
+        let rec = b.get("records").unwrap().as_arr().unwrap()[0].clone();
+        assert!(rec.to_json().contains("\"thinking\":\"the user greets\""), "{}", rec.to_json());
+        let back = crate::script::render(&Value::obj(vec![("records", Value::Arr(vec![rec.clone()]))])).unwrap();
+        assert!(back.get("text").unwrap().as_str().unwrap().contains("Thinking: the user greets"));
+        let prof = |m: &str, f: &str| crate::export::Profile::from_value(&parse(&format!(r#"{{"format":"{}","thinking":"{}"}}"#, f, m)).unwrap());
+        let tags = crate::export::convert(&rec, None, &prof("tags", "messages")).unwrap().to_json();
+        assert!(tags.contains("<think>") && !tags.contains("\"thinking\""), "{}", tags);
+        assert!(crate::export::convert(&rec, None, &prof("drop", "messages")).unwrap().to_json().find("thinking").is_none());
+        assert!(crate::export::convert(&rec, None, &prof("reasoning_content", "messages")).unwrap().to_json().contains("reasoning_content"));
+        assert!(crate::export::convert(&rec, None, &prof("keep", "chatml")).unwrap().to_json().find("think").is_none());
+        assert!(crate::export::convert(&rec, None, &Profile2::default_for("chatml")).unwrap().to_json().contains("<think>"));
+    }
+    struct Profile2;
+    impl Profile2 {
+        fn default_for(f: &str) -> crate::export::Profile {
+            crate::export::Profile::from_value(&parse(&format!(r#"{{"format":"{}"}}"#, f)).unwrap())
+        }
     }
 }

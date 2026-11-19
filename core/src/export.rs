@@ -9,6 +9,7 @@ pub struct Profile {
     pub role_map: Vec<(String, String)>,
     pub include_metadata: bool,
     pub system_in_alpaca: bool,
+    pub thinking: String, // keep | reasoning_content | tags | drop
 }
 
 impl Profile {
@@ -18,11 +19,23 @@ impl Profile {
             .and_then(|m| m.as_obj())
             .map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
             .unwrap_or_default();
+        let format = v.get("format").and_then(|f| f.as_str()).unwrap_or("messages").to_string();
+        let default_thinking = if format == "messages" || format == "raw" { "keep" } else { "tags" };
+        let thinking = v.get("thinking").and_then(|f| f.as_str()).filter(|m| ["keep", "reasoning_content", "tags", "drop"].contains(m)).unwrap_or(default_thinking).to_string();
         Profile {
-            format: v.get("format").and_then(|f| f.as_str()).unwrap_or("messages").to_string(),
+            thinking,
+            format,
             role_map,
             include_metadata: v.get("include_metadata").and_then(|b| b.as_bool()).unwrap_or(false),
             system_in_alpaca: v.get("system_in_alpaca").and_then(|b| b.as_bool()).unwrap_or(true),
+        }
+    }
+    /// Message text for formats that have no thinking field: <think>…</think> in front when mode is "tags".
+    fn content_of(&self, m: &Value) -> String {
+        let c = m.get("content").and_then(|c| c.as_str()).unwrap_or("");
+        match (self.thinking.as_str(), m.get("thinking").and_then(|t| t.as_str())) {
+            ("tags", Some(t)) if !t.is_empty() => format!("<think>\n{}\n</think>\n{}", t, c),
+            _ => c.to_string(),
         }
     }
     fn role(&self, r: &str) -> String {
@@ -66,6 +79,31 @@ fn convert_conv(rec: &Value, p: &Profile) -> Result<Value, String> {
                     if let Some(r) = m.get("role").and_then(|r| r.as_str()) {
                         m2.set("role", Value::str(p.role(r)));
                     }
+                    if let Some(t) = m.get("thinking").and_then(|t| t.as_str()).map(|t| t.to_string()) {
+                        if let Value::Obj(items) = &mut m2 {
+                            match p.thinking.as_str() {
+                                "drop" => items.retain(|(k, _)| k != "thinking"),
+                                "tags" => {
+                                    items.retain(|(k, _)| k != "thinking");
+                                    let c = p.content_of(m);
+                                    for (k, v) in items.iter_mut() {
+                                        if k == "content" {
+                                            *v = Value::str(c.clone());
+                                        }
+                                    }
+                                }
+                                "reasoning_content" => {
+                                    for (k, _) in items.iter_mut() {
+                                        if k == "thinking" {
+                                            *k = "reasoning_content".to_string();
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        let _ = t;
+                    }
                     m2
                 })
                 .collect();
@@ -75,7 +113,7 @@ fn convert_conv(rec: &Value, p: &Profile) -> Result<Value, String> {
             let mut conv = Vec::new();
             for m in msgs {
                 let r = m.get("role").and_then(|r| r.as_str()).ok_or("message without role")?;
-                let c = m.get("content").and_then(|c| c.as_str()).unwrap_or("");
+                let c = p.content_of(m);
                 conv.push(Value::obj(vec![("from", Value::str(p.role(r))), ("value", Value::str(c))]));
             }
             Ok(Value::obj(vec![("conversations", Value::Arr(conv))]))
@@ -84,11 +122,11 @@ fn convert_conv(rec: &Value, p: &Profile) -> Result<Value, String> {
             let mut t = String::new();
             for m in msgs {
                 let r = m.get("role").and_then(|r| r.as_str()).ok_or("message without role")?;
-                let c = m.get("content").and_then(|c| c.as_str()).unwrap_or("");
+                let c = p.content_of(m);
                 t.push_str("<|im_start|>");
                 t.push_str(&p.role(r));
                 t.push('\n');
-                t.push_str(c);
+                t.push_str(&c);
                 t.push_str("<|im_end|>\n");
             }
             Ok(Value::obj(vec![("text", Value::str(t))]))
@@ -100,7 +138,7 @@ fn convert_conv(rec: &Value, p: &Profile) -> Result<Value, String> {
             if users.len() != 1 || asst.len() != 1 || msgs.iter().any(|m| m.get("role").and_then(|r| r.as_str()) == Some("tool")) {
                 return Err("alpaca export supports only single-turn conversations".into());
             }
-            let txt = |v: &Value| v.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
+            let txt = |v: &Value| p.content_of(v);
             let mut pairs = vec![("instruction", Value::str(txt(users[0]))), ("input", Value::str(""))];
             pairs.push(("output", Value::str(txt(asst[0]))));
             if p.system_in_alpaca {

@@ -457,6 +457,7 @@ fun TransferTab(st: AppState, ds: Dataset) {
     var split by remember { mutableStateOf<String?>(null) }
     var meta by remember { mutableStateOf(false) }
     var roles by remember { mutableStateOf("") }
+    var thinking by remember { mutableStateOf("") }
     var report by remember { mutableStateOf<String?>(null) }
     val last by ioState<JSONObject?>(null, ds.id, st.rev) { st.repo.lastValidation(ds.id) }
 
@@ -464,7 +465,7 @@ fun TransferTab(st: AppState, ds: Dataset) {
         if (uri != null) st.work(tr("Importing", "استيراد"), {
             importFile(st.ctx, uri, st.repo, ds, license.ifBlank { "unknown" }, st::progress) { st.cancelFlag.get() }
         }) { r ->
-            report = tr("Imported ${r.imported}, rejected ${r.rejected}${if (r.cancelled) " (cancelled)" else ""}. Format: ${r.format}.", "تم استيراد ${r.imported}، ورُفض ${r.rejected}${if (r.cancelled) " (ألغي)" else ""}. الصيغة: ${r.format}.") +
+            report = tr("Imported ${r.imported}, rejected ${r.rejected}${if (r.cancelled) " (cancelled)" else ""}. Format: ${r.format}.${if (r.cancelled) " Paused: resume it from the list below." else ""}", "تم استيراد ${r.imported}، ورُفض ${r.rejected}${if (r.cancelled) " (ألغي)" else ""}. الصيغة: ${r.format}.") +
                 (if (r.errorsTotal > r.errors.size) "\n" + tr("${r.errorsTotal} problems in total (first ${r.errors.size} shown; all are in Settings → Logs).", "${r.errorsTotal} مشكلة في المجموع (تعرض أول ${r.errors.size}؛ كلها في الإعدادات ← السجلات).") else "") +
                 (if (r.errors.isNotEmpty()) "\n" + r.errors.joinToString("\n") else "")
         }
@@ -472,7 +473,7 @@ fun TransferTab(st: AppState, ds: Dataset) {
     val exportPick = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri: Uri? ->
         if (uri != null) {
             val rm = roles.split(",").mapNotNull { it.split("=").takeIf { kv -> kv.size == 2 }?.let { kv -> kv[0].trim() to kv[1].trim() } }.toMap()
-            val opts = ExportOptions(container, profile, split, meta, rm)
+            val opts = ExportOptions(container, profile, split, meta, rm, thinking)
             st.work(tr("Exporting", "تصدير"), { exportDataset(st.ctx, uri, st.repo, ds, opts, st::progress) { st.cancelFlag.get() } }) { r ->
                 report = tr("Exported ${r.written} records. Integrity: ${r.note}. sha256 ${r.sha256.take(16)}…", "تم تصدير ${r.written} سجل. السلامة: ${r.note}. sha256 ${r.sha256.take(16)}…") +
                     (if (r.errors.isNotEmpty()) "\n" + tr("Skipped:", "تم تخطي:") + "\n" + r.errors.joinToString("\n") else "")
@@ -489,6 +490,7 @@ fun TransferTab(st: AppState, ds: Dataset) {
                 GButton(tr("Choose file…", "اختيار ملف…"), { importPick.launch(arrayOf("*/*")) }, icon = Ic.IMPORT, accent = true, enabled = !ds.locked)
                 GButton(tr("Sources, URLs and APIs…", "المصادر والروابط والواجهات…"), { st.push(Screen.SourcesS(ds.id)) }, icon = Ic.BACKUP)
                 GButton(tr("Dataset Intelligence…", "ذكاء المجموعة…"), { st.push(Screen.IntelS(ds.id)) }, icon = Ic.LAYERS)
+                JobsCard(st, ds) { report = it }
             }
         }
         Glass(Modifier.fillMaxWidth(), strength = 0.55f) {
@@ -501,6 +503,15 @@ fun TransferTab(st: AppState, ds: Dataset) {
                     ChipRow { listOf("messages", "sharegpt", "alpaca", "chatml", "raw").forEach { c -> Chip(c, profile == c) { profile = c } } }
                     Field(roles, { roles = it }, Modifier.fillMaxWidth(), hint = tr("Role names, e.g. assistant=model, user=human", "أسماء الأدوار مثل assistant=model, user=human"), singleLine = true, mono = true)
                 }
+                T(tr("Thinking (assistant reasoning)", "التفكير (استدلال المساعد)"), 12.sp, FontWeight.SemiBold, p.textDim)
+                ChipRow {
+                    Chip(tr("auto", "تلقائي"), thinking == "") { thinking = "" }
+                    Chip("keep", thinking == "keep") { thinking = "keep" }
+                    Chip("reasoning_content", thinking == "reasoning_content") { thinking = "reasoning_content" }
+                    Chip("<think> tags", thinking == "tags") { thinking = "tags" }
+                    Chip(tr("drop", "حذف"), thinking == "drop") { thinking = "drop" }
+                }
+                T(tr("auto: messages keeps a \"thinking\" field; other formats put it in <think> tags.", "تلقائي: messages تبقي حقل \"thinking\"؛ الصيغ الأخرى تضعه في وسوم <think>."), 11.sp, color = p.textDim)
                 T(tr("Split", "القسم"), 12.sp, FontWeight.SemiBold, p.textDim)
                 ChipRow { Chip(tr("All", "الكل"), split == null) { split = null }; SPLITS.forEach { s -> Chip(s, split == s) { split = s } } }
                 Toggle(meta, { meta = it }, tr("Include provenance metadata (origin, source, license)", "تضمين بيانات المصدر (المصدر، الترخيص)"))

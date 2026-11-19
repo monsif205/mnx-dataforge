@@ -1,0 +1,27 @@
+Phase 7 - resumable imports, DOCX, thinking (version 1.0.10)
+
+RESUMABLE IMPORTS
+- DB_VERSION 3: table import_jobs (dataset, kind uri|file, location, name, license, label, consumed, imported, skipped, rejected, state, message, source id, incremental, extra).
+- Every batch and its progress marker are written in ONE transaction (Repo.tx), so a crash cannot import a batch twice or lose one.
+- Rust reader_open takes skip_records: the engine discards that many records (in slices of 200,000 per call so the app can show progress) and returns the rest.
+  Tested for skip 0, 1, 7, 50, 99, 100, 250 on a 100-record file.
+- Picker imports keep read access (persistable URI permission) so they can resume without picking the file again.
+- Source downloads: a job is created right after the download finishes (before the checksum), the file is kept until the import completes;
+  completion records the source version and removes the job and file. API pages are saved to a file the same way.
+- UI: "Unfinished imports" card (Transfer tab and Sources screen) with Resume / Discard. Cancel = pause.
+- Limits: the file must still exist (same URI or saved download). Skipping re-reads the file from the start (no seeking), so resuming a 5 GB file spends
+  time reading but writes nothing. An API fetch interrupted while paging starts again from page 1; once its pages are saved it resumes like a file.
+  A source cannot start a new fetch while it has an unfinished job.
+
+DOCX
+- core/src/docx.rs reads word/document.xml (size capped): headings -> "#", lists -> "-", tables -> "| a | b |", entities decoded, paragraphs rebuilt.
+  Works as a plain file and as an entry inside ZIP/TAR. Headers, footers, footnotes, comments and images are not read. DOCX export is not implemented.
+
+THINKING
+- Assistant messages may have a "thinking" string. Editor: "+ Thinking" chip, text box, remove button. msg_edit actions thinking / thinking_remove.
+- Import (adapt): reasoning_content, reasoning and <think>/<thinking> prefixes become "thinking" (record marked transformed). Alpaca-style records with thinking/reasoning too.
+- Quick Write: "Thinking:" (also Reasoning:/Think:) lines attach to the next Assistant message; to_script writes them back.
+- Export profile "thinking": keep | reasoning_content | tags | drop. Default: messages/raw keep, other formats tags.
+- Search, duplicate detection and token estimates include the thinking text.
+
+TESTS: 86 Rust tests pass. Kotlin not compiled here.

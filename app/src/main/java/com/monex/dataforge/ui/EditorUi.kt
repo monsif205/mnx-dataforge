@@ -245,6 +245,15 @@ private fun ConversationBody(doc: String, onDoc: (String) -> Unit, locked: Boole
                     }
                 }
                 Field(m.optString("content"), { nc -> onDoc(msgOp(doc, "content", i) { put("content", nc) }) }, Modifier.fillMaxWidth(), hint = tr("Message ${i + 1}", "الرسالة ${i + 1}"), minHeight = 70.dp, enabled = !locked)
+                if (role == "assistant") {
+                    if (m.has("thinking")) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            T(tr("Thinking", "التفكير"), 12.sp, FontWeight.SemiBold, p.accent, modifier = Modifier.weight(1f))
+                            IconBtn(Ic.TRASH, { onDoc(msgOp(doc, "thinking_remove", i)) }, enabled = !locked, tint = p.danger)
+                        }
+                        Field(m.optString("thinking"), { nc -> onDoc(msgOp(doc, "thinking", i) { put("content", nc) }) }, Modifier.fillMaxWidth(), hint = tr("The assistant's reasoning before it answers", "استدلال المساعد قبل الإجابة"), minHeight = 70.dp, enabled = !locked)
+                    } else if (!locked) Chip(tr("+ Thinking", "+ تفكير"), false) { onDoc(msgOp(doc, "thinking", i) { put("content", "") }) }
+                }
                 if (m.has("tool_calls") || m.has("metadata") || m.has("annotations")) T(tr("Has extra fields (edit them in JSON view).", "فيها حقول إضافية (حررها في عرض JSON)."), 11.sp, color = p.textDim)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     IconBtn(Ic.UP, { onDoc(msgOp(doc, "up", i)) }, enabled = i > 0 && !locked)

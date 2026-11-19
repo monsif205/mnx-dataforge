@@ -25,7 +25,9 @@ import com.monex.dataforge.data.Source
 import com.monex.dataforge.ops.GATE_ALLOW
 import com.monex.dataforge.ops.GATE_REVIEW_ACK
 import com.monex.dataforge.ops.Gate
+import com.monex.dataforge.ops.discardJob
 import com.monex.dataforge.ops.fetchSource
+import com.monex.dataforge.ops.runJob
 import com.monex.dataforge.ops.licenseGate
 import com.monex.dataforge.ops.urlProblem
 import org.json.JSONArray
@@ -68,6 +70,7 @@ fun SourcesScreen(st: AppState, datasetId: String) {
                     T(tr("Supported: JSONL, JSON, CSV, TSV, TXT, MD, HTML pages, Parquet, and ZIP / TAR / gzip / Zstandard of those.", "المدعوم: JSONL وJSON وCSV وTSV وTXT وMD وصفحات HTML وParquet وأرشيفات ZIP وTAR وgzip وZstandard منها."), 12.sp, color = p.textDim)
                 }
             }
+            JobsCard(st, d) { report = it }
             report?.let { Glass(Modifier.fillMaxWidth(), strength = 0.7f) { Column(Modifier.padding(14.dp)) { T(it, 13.sp, mono = true) } } }
             if (sources.isEmpty()) T(tr("No sources yet. Tap Add to register a file URL or a JSON API.", "لا توجد مصادر بعد. اضغط إضافة لتسجيل رابط ملف أو واجهة JSON."), 14.sp, color = p.textDim)
             for (s in sources) {
@@ -356,5 +359,43 @@ private fun HistSection(title: String, a: JSONArray?, cap: Int = 100) {
             T(title, 15.sp, FontWeight.SemiBold)
             for (o in shown) BarRow(o.optString("label") + "  (" + "%.1f".format(o.optDouble("pct", 0.0)) + "%)", o.optLong("count", 0).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), max, p.accent)
         }
+    }
+}
+
+
+/** Imports that were interrupted (app closed, crash, cancel, error). Each continues from its last saved batch. */
+@Composable
+fun JobsCard(st: AppState, ds: Dataset, onReport: (String) -> Unit) {
+    val p = LocalPalette.current
+    val jobs by ioState(emptyList<com.monex.dataforge.data.ImportJob>(), ds.id, st.rev) { st.repo.jobs(ds.id) }
+    var discard by remember { mutableStateOf<com.monex.dataforge.data.ImportJob?>(null) }
+    if (jobs.isEmpty()) return
+    Glass(Modifier.fillMaxWidth(), strength = 0.7f) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            T(tr("Unfinished imports", "عمليات استيراد غير مكتملة"), 15.sp, FontWeight.SemiBold)
+            T(tr("Progress is saved after every batch. Resume continues where it stopped; nothing is imported twice.", "يحفظ التقدم بعد كل دفعة. الاستئناف يكمل من حيث توقف ولا يستورد شيئا مرتين."), 12.sp, color = p.textDim)
+            for (j in jobs) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        T(j.name, 14.sp, FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f))
+                        Badge(if (j.state == "running") tr("interrupted", "متوقف") else j.state, if (j.state == "failed") p.danger else p.warn)
+                    }
+                    T(tr("${j.consumed} records read, ${j.imported} imported, ${j.skipped} unchanged, ${j.rejected} rejected", "${j.consumed} سجل مقروء، ${j.imported} مستورد، ${j.skipped} دون تغيير، ${j.rejected} مرفوض") +
+                        (if (j.message.isNotBlank()) "\n${j.message}" else ""), 12.sp, color = p.textDim)
+                    ChipRow {
+                        GButton(tr("Resume", "استئناف"), {
+                            st.work(tr("Resuming ${j.name}", "استئناف ${j.name}"), { runJob(st.ctx, st.repo, ds, j, st::progress) { st.cancelFlag.get() } }) { r ->
+                                onReport(tr("Resumed: imported ${r.imported} more, rejected ${r.rejected}${if (r.cancelled) " (paused again)" else ""}.", "تم الاستئناف: استورد ${r.imported} إضافية، رُفض ${r.rejected}${if (r.cancelled) " (توقف مجددا)" else ""}."))
+                            }
+                        }, icon = Ic.PLAY, accent = true, enabled = !ds.locked)
+                        GButton(tr("Discard", "تجاهل"), { discard = j }, icon = Ic.TRASH, danger = true)
+                    }
+                }
+            }
+        }
+    }
+    discard?.let { j ->
+        ConfirmDialog(tr("Discard this import?", "تجاهل هذا الاستيراد؟"), tr("The rest of the file will not be imported. Records already imported stay.", "لن يستورد باقي الملف. تبقى السجلات المستوردة."),
+            tr("Discard", "تجاهل"), true, { st.work(tr("Discarding", "تجاهل"), { discardJob(st.repo, j) }) }, { discard = null })
     }
 }

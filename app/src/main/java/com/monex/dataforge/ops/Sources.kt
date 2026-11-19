@@ -90,6 +90,7 @@ fun fetchSource(
     progress: (String) -> Unit, cancelled: () -> Boolean
 ): FetchOutcome {
     if (src.licenseStatus != GATE_ALLOW && src.licenseStatus != GATE_REVIEW_ACK) throw IllegalStateException("This source has not passed the License Gate.")
+    if (repo.jobs(ds.id).any { it.sourceId == src.id }) throw IllegalStateException("This source has an unfinished import. Resume or discard it first (see \"Unfinished imports\").")
     val cfg = src.config
     val opt = DlOptions(
         chunkBytes = cfg.optLong("chunk_mb", 8).coerceIn(1, 64) shl 20,
@@ -143,27 +144,27 @@ private fun fetchUrl(
         }
         is FetchResult.Done -> {
             val f = res.file
-            try {
-                progress("$label: verifying checksum…")
-                val sha = NativeCore.run("file_hash", JSONObject().put("path", f.path).put("algo", "sha256")).getString("hex")
-                val expected = src.expectedSha256?.trim()?.lowercase().orEmpty()
-                if (expected.isNotEmpty() && expected != sha) {
-                    f.delete()
-                    throw DownloadException("checksum mismatch: expected ${expected.take(16)}…, got ${sha.take(16)}…. The file was discarded.")
-                }
-                val meta = metaFor(res.remote, f, sha)
-                if (conditional && sha == src.sha256) {
-                    repo.addSourceVersion(src.id, res.remote.etag, res.remote.lastModified, f.length(), sha, 0, 0, 0, "unchanged: identical content (checksum)", meta)
-                    return FetchOutcome(0, 0, 0, "No changes: the content is identical (same checksum).", true, emptyList(), sha)
-                }
-                val skip = if (conditional) repo.recordFingerprints(ds.id, label) else null
-                val r = importPath(ctx, f.path, fileName, repo, ds, src.license, label, lim, skip, progress, cancelled)
-                val note = (if (res.resumedBytes > 0) "resumed (${fmtMb(res.resumedBytes)} reused); " else "") + "checksum ${sha.take(12)}…" + if (conditional) "; incremental" else ""
-                repo.addSourceVersion(src.id, res.remote.etag, res.remote.lastModified, f.length(), sha, r.imported, r.skipped, r.rejected, note, meta)
-                return FetchOutcome(r.imported, r.skipped, r.rejected, note, false, r.errors, sha)
-            } finally {
-                f.delete()
+            val extra0 = JSONObject().put("etag", res.remote.etag ?: "").put("last_modified", res.remote.lastModified ?: "").put("size", f.length())
+                .put("max_decompressed_mb", lim.maxDecompressedMb)
+            // The job is saved before the checksum is computed, so even a kill during hashing keeps the finished download.
+            val job0 = repo.createJob(ds.id, "file", f.path, fileName, src.license, label, src.id, conditional, extra0)
+            progress("$label: verifying checksum…")
+            val sha = NativeCore.run("file_hash", JSONObject().put("path", f.path).put("algo", "sha256")).getString("hex")
+            val expected = src.expectedSha256?.trim()?.lowercase().orEmpty()
+            if (expected.isNotEmpty() && expected != sha) {
+                discardJob(repo, job0)
+                throw DownloadException("checksum mismatch: expected ${expected.take(16)}…, got ${sha.take(16)}…. The file was discarded.")
             }
+            val meta = metaFor(res.remote, f, sha)
+            if (conditional && sha == src.sha256) {
+                discardJob(repo, job0)
+                repo.addSourceVersion(src.id, res.remote.etag, res.remote.lastModified, f.length(), sha, 0, 0, 0, "unchanged: identical content (checksum)", meta)
+                return FetchOutcome(0, 0, 0, "No changes: the content is identical (same checksum).", true, emptyList(), sha)
+            }
+            val note = (if (res.resumedBytes > 0) "resumed (${fmtMb(res.resumedBytes)} reused); " else "") + "checksum ${sha.take(12)}…" + if (conditional) "; incremental" else ""
+            repo.setJobExtra(job0.id, JSONObject(extra0.toString()).put("sha256", sha).put("note", note).put("meta", meta))
+            val r = runJob(ctx, repo, ds, repo.job(job0.id)!!, progress, cancelled)
+            return FetchOutcome(r.imported, r.skipped, r.rejected, if (r.cancelled) "Paused. Resume it from the unfinished imports list." else note, false, r.errors, sha)
         }
     }
     @Suppress("UNREACHABLE_CODE")
@@ -204,7 +205,7 @@ private fun fetchApi(
     val cursorParam = cfg.optString("cursor_param")
     val maxPages = cfg.optInt("max_pages", 50).coerceIn(1, 100_000)
     val maxRecords = cfg.optInt("max_records", 100_000).coerceIn(1, 20_000_000)
-    val tmp = File(tmpDir(ctx), "api-${src.id}.jsonl")
+    val tmp = File(File(ctx.filesDir, "downloads/${src.id}").also { it.mkdirs() }, "api.jsonl")
     var total = 0
     val errors = ArrayList<String>()
     try {
@@ -240,16 +241,19 @@ private fun fetchApi(
                 } else if (pageParam.isBlank()) break
             }
         }
-        if (total == 0) return FetchOutcome(0, 0, 0, "The API returned no records.", true, errors, null)
+        if (total == 0) { tmp.delete(); return FetchOutcome(0, 0, 0, "The API returned no records.", true, errors, null) }
         val sha = NativeCore.run("file_hash", JSONObject().put("path", tmp.path)).getString("hex")
-        val skip = if (src.lastImport > 0) repo.recordFingerprints(ds.id, label) else null
-        val r = importPath(ctx, tmp.path, "api.jsonl", repo, ds, src.license, label, lim, skip, progress, cancelled)
+        val incremental = src.lastImport > 0
         val meta = JSONObject().put("api_records_fetched", total).put("sha256", sha).put("size", tmp.length())
-        val note = "API: $total records fetched" + if (skip != null) "; incremental" else ""
-        repo.addSourceVersion(src.id, null, null, tmp.length(), sha, r.imported, r.skipped, r.rejected, note, meta)
+        val note = "API: $total records fetched" + if (incremental) "; incremental" else ""
+        val extra = JSONObject().put("size", tmp.length()).put("sha256", sha).put("note", note).put("meta", meta).put("max_decompressed_mb", lim.maxDecompressedMb)
+        val job = repo.createJob(ds.id, "file", tmp.path, "api.jsonl", src.license, label, src.id, incremental, extra)
+        val r = runJob(ctx, repo, ds, job, progress, cancelled)
         Logger.i("sources", "$label: $note, imported ${r.imported}, skipped ${r.skipped}")
         return FetchOutcome(r.imported, r.skipped, r.rejected, note, false, errors + r.errors, sha)
-    } finally {
-        tmp.delete()
+    } catch (e: Throwable) {
+        // A half-written page file is useless; a finished one is already owned by a saved job.
+        if (repo.jobs(ds.id).none { it.location == tmp.path }) tmp.delete()
+        throw e
     }
 }

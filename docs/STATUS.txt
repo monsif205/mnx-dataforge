@@ -97,3 +97,8 @@ PHASE 6 (latest, version 1.0.7)
  Done: Rust ingestion engine (zip/tar/gzip/zstd, parquet, html extraction, normalisation, license gate, robots, intelligence; 79 tests),
        resumable parallel downloader, Sources screen with License Gate, version tracking, incremental updates, Dataset Intelligence.
  Not verified: Kotlin compile (CI), device behaviour. See journal/phase6-ingestion-engine.txt.
+
+
+PHASE 7 (version 1.0.10)
+ Done: resumable imports (saved per batch), DOCX import, thinking field (editor, import, Quick Write, export).
+ Not verified: Kotlin compile (CI), real interruption on a device. See journal/phase7-resume-docx-thinking.txt.

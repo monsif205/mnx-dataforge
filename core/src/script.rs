@@ -14,9 +14,10 @@ fn canon_role(label: &str, extra: &[String]) -> Option<String> {
     let mapped = match l.as_str() {
         "human" => "user",
         "ai" | "gpt" | "bot" | "model" => "assistant",
+        "reasoning" | "think" | "thought" => "thinking",
         other => other,
     };
-    if STD_ROLES.contains(&mapped) || extra.iter().any(|e| e.to_lowercase() == mapped) {
+    if mapped == "thinking" || STD_ROLES.contains(&mapped) || extra.iter().any(|e| e.to_lowercase() == mapped) {
         Some(mapped.to_string())
     } else {
         None
@@ -82,6 +83,29 @@ fn heading_label(line: &str) -> Option<String> {
 fn is_sep(line: &str) -> bool {
     let t = line.trim();
     t.len() >= 3 && t.chars().all(|c| c == '-')
+}
+
+
+/// Turns (role, text) pairs into messages. A "thinking" block is attached to the next assistant message.
+pub fn pairs_to_messages(g: Vec<(String, String)>, warnings: &mut Vec<String>) -> Vec<Value> {
+    let mut out: Vec<Value> = Vec::new();
+    let mut pending: Vec<String> = Vec::new();
+    for (r, c) in g {
+        if r == "thinking" {
+            pending.push(c);
+            continue;
+        }
+        let mut m = vec![("role", Value::str(r.clone())), ("content", Value::str(c))];
+        if r == "assistant" && !pending.is_empty() {
+            m.insert(1, ("thinking", Value::str(pending.join("\n\n"))));
+            pending.clear();
+        }
+        out.push(Value::obj(m));
+    }
+    if !pending.is_empty() {
+        warnings.push("a Thinking block had no Assistant message after it and was dropped".to_string());
+    }
+    out
 }
 
 type Pairs = Vec<(String, String)>;
@@ -198,7 +222,7 @@ pub fn build(v: &Value) -> Result<Value, String> {
                     warnings.push(format!("record {}: empty {} message", n + 1, k));
                 }
             }
-            let msgs: Vec<Value> = g.iter().map(|(r, c)| Value::obj(vec![("role", Value::str(r.clone())), ("content", Value::str(c.clone()))])).collect();
+            let msgs = pairs_to_messages(g.clone(), &mut warnings);
             Value::obj(vec![("messages", Value::Arr(msgs))])
         };
         let t = estimate_tokens(&record_text(&rec));
@@ -271,17 +295,20 @@ pub fn text_records(v: &Value) -> Result<Value, String> {
         } else {
             let (groups, w) = if conversation { parse_conversations(text, &extra) } else { parse_fields(text, &fields) };
             warnings.extend(w);
-            groups
+            let mut conv_warn: Vec<String> = Vec::new();
+            let recs: Vec<Value> = groups
                 .into_iter()
                 .map(|g| {
                     if conversation {
-                        let msgs: Vec<Value> = g.into_iter().map(|(r, c)| Value::obj(vec![("role", Value::str(r)), ("content", Value::str(c))])).collect();
+                        let msgs = pairs_to_messages(g, &mut conv_warn);
                         Value::obj(vec![("messages", Value::Arr(msgs))])
                     } else {
                         Value::Obj(g.into_iter().map(|(k, c)| (k, Value::str(c))).collect())
                     }
                 })
-                .collect()
+                .collect();
+            warnings.extend(conv_warn);
+            recs
         }
     };
     Ok(Value::obj(vec![("records", Value::Arr(records)), ("warnings", Value::Arr(warnings.into_iter().map(Value::str).collect()))]))
@@ -305,6 +332,9 @@ pub fn render(v: &Value) -> Result<Value, String> {
             for m in msgs {
                 let role = m.get("role").and_then(|x| x.as_str()).unwrap_or("user");
                 let content = m.get("content").and_then(|x| x.as_str()).unwrap_or("");
+                if let Some(t) = m.get("thinking").and_then(|x| x.as_str()) {
+                    lines.push(format!("Thinking: {}", t));
+                }
                 let mut label = role.to_string();
                 if let Some(c) = label.get_mut(0..1) {
                     c.make_ascii_uppercase();

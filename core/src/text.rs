@@ -200,7 +200,15 @@ fn collect_strings(v: &Value, out: &mut Vec<String>) {
 /// Conversations use only message contents; other records use all string values.
 pub fn record_text(v: &Value) -> String {
     if let Some(msgs) = v.get("messages").and_then(|m| m.as_arr()) {
-        let parts: Vec<&str> = msgs.iter().filter_map(|m| m.get("content").and_then(|c| c.as_str())).collect();
+        let mut parts: Vec<&str> = Vec::new();
+        for m in msgs {
+            if let Some(t) = m.get("thinking").and_then(|c| c.as_str()) {
+                parts.push(t);
+            }
+            if let Some(c) = m.get("content").and_then(|c| c.as_str()) {
+                parts.push(c);
+            }
+        }
         return parts.join("\n");
     }
     let mut parts = Vec::new();

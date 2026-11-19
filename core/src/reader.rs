@@ -756,6 +756,7 @@ fn supported_ext(name: &str) -> Option<&'static str> {
         "txt" | "text" | "md" | "markdown" | "rst" | "log" => "text",
         "html" | "htm" | "xhtml" => "html",
         "parquet" => "parquet",
+        "docx" => "docx",
         _ => return None,
     })
 }
@@ -798,6 +799,26 @@ fn leaf(name: &str, stream: Stream, lim: &Limits, hint: Option<&str>) -> Result<
         "json" => Box::new(JsonDoc { r, name: nm, cap: lim.max_line_bytes, whole_cap: lim.whole_file_cap, started: false, in_array: false, queue: VecDeque::new(), index: 0, done: false }),
         "csv" | "tsv" => Box::new(CsvRecords { r, name: nm, cap: lim.max_line_bytes, delim: if kind == Some("tsv") { Some('\t') } else { lim.csv_delim }, header: None, line: 0, buf: Vec::new(), done: false }),
         "html" => Box::new(Whole { name: nm, stream: Some(Box::new(r)), cap: lim.whole_file_cap, kind: WholeKind::Html { markdown: lim.html_markdown }, queue: VecDeque::new(), loaded: false }),
+        "docx" => {
+            // A .docx is a ZIP package: spool it to a temporary file (bounded by the file limit), extract the text, read it as text.
+            let tmp = lim.tmp_dir.join(format!("mnx_spool_{}_{}.docx", std::process::id(), SPOOL.fetch_add(1, Ordering::Relaxed)));
+            let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+            let res = io::copy(&mut r, &mut f);
+            drop(f);
+            let text = match res {
+                Ok(_) => crate::docx::extract(&tmp, lim.whole_file_cap),
+                Err(e) => Err(format!("could not read the document: {}", e)),
+            };
+            let _ = std::fs::remove_file(&tmp);
+            let text = text?;
+            let r2 = bufread(Box::new(io::Cursor::new(text.into_bytes())));
+            let mode = lim.text_mode.clone();
+            if mode == "conversation" || mode == "fields" {
+                Box::new(Whole { name: nm, stream: Some(Box::new(r2)), cap: lim.whole_file_cap, kind: WholeKind::Labelled { mode, fields: lim.fields.clone(), extra_roles: lim.extra_roles.clone() }, queue: VecDeque::new(), loaded: false })
+            } else {
+                Box::new(TextLines { r: r2, name: nm, cap: lim.max_line_bytes, paragraphs: true, buf: Vec::new(), done: false, cur: String::new(), start_line: 0, line: 0 })
+            }
+        }
         "parquet" => {
             // Parquet needs random access: spool to a temporary file (bounded by the file limit), then read it.
             let tmp = lim.tmp_dir.join(format!("mnx_spool_{}_{}.parquet", std::process::id(), SPOOL.fetch_add(1, Ordering::Relaxed)));
@@ -888,7 +909,12 @@ pub fn open_source(path: &Path, name: &str, lim: &Limits) -> Result<Opened, Stri
     let count = Arc::new(AtomicU64::new(0));
     let mut warnings = Vec::new();
     let counted = |f: std::fs::File| -> Stream { Box::new(Counting { inner: BufReader::with_capacity(256 * 1024, f), count: count.clone() }) };
+    let is_docx = kind == Kind::Zip && name.to_lowercase().ends_with(".docx");
     let (src, format): (Box<dyn Records>, String) = match kind {
+        Kind::Zip if is_docx => {
+            let r = leaf(name, counted(f), lim, Some("docx"))?;
+            (r, "docx".to_string())
+        }
         Kind::Zip => {
             let entries = archive::zip_entries(&mut f, lim.max_entries).map_err(|e| e.to_string())?;
             let n = entries.len();
@@ -942,6 +968,7 @@ struct Slot {
     total_records: u64,
     errors_total: u64,
     done: bool,
+    skip: u64, // records to discard before returning data (resume after an interrupted import)
 }
 
 static REG: OnceLock<Mutex<(u64, HashMap<u64, Slot>)>> = OnceLock::new();
@@ -1005,7 +1032,7 @@ pub fn op_open(v: &Value) -> Result<Value, String> {
     let mut g = reg().lock().map_err(|_| "registry poisoned".to_string())?;
     g.0 += 1;
     let id = g.0;
-    g.1.insert(id, Slot { src: o.src, count: o.count, file_size: o.file_size, total_records: 0, errors_total: 0, done: false });
+    g.1.insert(id, Slot { src: o.src, count: o.count, file_size: o.file_size, total_records: 0, errors_total: 0, done: false, skip: n_of(v, "skip_records").unwrap_or(0.0).max(0.0) as u64 });
     Ok(Value::obj(vec![
         ("handle", Value::int(id as i64)),
         ("format", Value::str(o.format)),
@@ -1024,7 +1051,35 @@ pub fn op_next(v: &Value) -> Result<Value, String> {
         g.1.remove(&h).ok_or("unknown or closed handle")?
     };
     let mut b = Batch::default();
-    if !slot.done {
+    // Resume: discard records that an earlier run already imported (same file, same order).
+    let mut budget: u64 = 200_000; // keep each call short so the app can show progress while skipping
+    while slot.skip > 0 && !slot.done && budget > 0 {
+        let mut tb = Batch::default();
+        let want = slot.skip.min(5000) as usize;
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| slot.src.next(want, 64 << 20, &mut tb)));
+        match r {
+            Ok(done) => slot.done = done,
+            Err(_) => {
+                b.err("reader", "internal error while reading; the file was stopped");
+                slot.done = true;
+            }
+        }
+        let n = tb.records.len() as u64;
+        budget = budget.saturating_sub(n.max(1));
+        slot.total_records += n.min(slot.skip);
+        if n > slot.skip {
+            let k = slot.skip as usize;
+            let rest: Vec<Value> = tb.records.split_off(k);
+            let rest_src: Vec<String> = tb.sources.split_off(k);
+            for (rv, rs) in rest.into_iter().zip(rest_src) {
+                b.push(&rs, rv);
+            }
+            slot.skip = 0;
+        } else {
+            slot.skip -= n;
+        }
+    }
+    if !slot.done && slot.skip == 0 {
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| slot.src.next(max_records, max_bytes, &mut b)));
         match r {
             Ok(done) => slot.done = done,
@@ -1285,5 +1340,54 @@ mod tests {
         assert!(recs.is_empty() && errs.iter().any(|e| e.1.contains("limit")), "{:?} {:?}", recs.len(), errs);
         let h = op_file_hash(&json::parse(&format!("{{\"path\":\"{}\"}}", p.display())).unwrap()).unwrap();
         assert_eq!(h.get("bytes").unwrap().as_f64().unwrap(), 200.0);
+    }
+}
+
+#[cfg(test)]
+mod resume_tests {
+    use super::*;
+    use crate::json::parse;
+
+    fn drain(handle: f64) -> Vec<Value> {
+        let mut all = Vec::new();
+        loop {
+            let r = op_next(&parse(&format!("{{\"handle\":{},\"max_records\":7}}", handle)).unwrap()).unwrap();
+            all.extend(r.get("records").unwrap().as_arr().unwrap().iter().cloned());
+            if r.get("done").unwrap().as_bool().unwrap() {
+                break;
+            }
+        }
+        op_close(&parse(&format!("{{\"handle\":{}}}", handle)).unwrap()).unwrap();
+        all
+    }
+
+    #[test]
+    fn skip_records_resumes_exactly() {
+        let dir = std::env::temp_dir().join(format!("mnx_resume_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("r.jsonl");
+        let body: String = (0..100).map(|i| format!("{{\"n\":{}}}\n", i)).collect();
+        std::fs::write(&f, body).unwrap();
+        for skip in [0, 1, 7, 50, 99, 100, 250] {
+            let q = parse(&format!("{{\"path\":\"{}\",\"skip_records\":{}}}", f.display(), skip)).unwrap();
+            let h = op_open(&q).unwrap().get("handle").unwrap().as_f64().unwrap();
+            let got = drain(h);
+            let want = 100usize.saturating_sub(skip);
+            assert_eq!(got.len(), want, "skip {}", skip);
+            if want > 0 {
+                assert_eq!(got[0].get("n").unwrap().as_f64().unwrap() as usize, skip.min(100));
+            }
+        }
+    }
+
+    #[test]
+    fn docx_is_read_as_paragraph_records() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/sample.docx");
+        let q = parse(&format!("{{\"path\":\"{}\",\"name\":\"sample.docx\",\"text_split\":\"paragraphs\"}}", p.display())).unwrap();
+        let o = op_open(&q).unwrap();
+        assert_eq!(o.get("format").unwrap().as_str().unwrap(), "docx");
+        let recs = drain(o.get("handle").unwrap().as_f64().unwrap());
+        let all: String = recs.iter().map(|r| r.get("text").unwrap().as_str().unwrap().to_string()).collect::<Vec<_>>().join("|");
+        assert!(all.contains("# Sample document") && all.contains("First paragraph") && all.contains("- list item") && all.contains("cell A") && all.contains("بالعربية"), "{}", all);
     }
 }
