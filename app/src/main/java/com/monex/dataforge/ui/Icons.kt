@@ -37,7 +37,7 @@ private val ICON_DATA: Map<Ic, List<Pair<String, Boolean>>> = mapOf(
     Ic.COPY to listOf("M10.5 9h7A2.5 2.5 0 0 1 20 11.5v6a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 8 17.5v-6A2.5 2.5 0 0 1 10.5 9z" to true, "M16 6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8" to false),
     Ic.UP to listOf("M6 14.5l6-6 6 6" to false),
     Ic.DOWN to listOf("M6 9.5l6 6 6-6" to false),
-    Ic.BACK to listOf("M15 5.5L8.5 12l6.5 6.5" to false),
+    Ic.BACK to listOf("M19 12H5.5M11.5 5.8L5.2 12l6.3 6.2" to false),
     Ic.UNDO to listOf("M9 6.5L4.8 10.7 9 14.9" to false, "M5 10.7h8.2a5 5 0 0 1 0 10H11" to false),
     Ic.REDO to listOf("M15 6.5l4.2 4.2L15 14.9" to false, "M19 10.7h-8.2a5 5 0 0 0 0 10H13" to false),
     Ic.IMPORT to listOf("M5 15v2.5A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5V15" to false, "M12 4v10.5M12 14.5l-3.5-3.5M12 14.5l3.5-3.5" to false),

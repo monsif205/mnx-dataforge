@@ -73,6 +73,7 @@ fun Page(title: String, onBack: (() -> Unit)? = null, actions: @Composable RowSc
             content()
         }
     }, overlay = {
+        Box(Modifier.fillMaxWidth().statusBarsPadding().height(58.dp).background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(p.bgTop.copy(alpha = 0.85f), androidx.compose.ui.graphics.Color.Transparent))))
         Row(
             Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 14.dp, vertical = 8.dp).height(42.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)

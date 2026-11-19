@@ -757,6 +757,7 @@ fn supported_ext(name: &str) -> Option<&'static str> {
         "html" | "htm" | "xhtml" => "html",
         "parquet" => "parquet",
         "docx" => "docx",
+        "pdf" => "pdf",
         _ => return None,
     })
 }
@@ -787,6 +788,7 @@ fn leaf(name: &str, stream: Stream, lim: &Limits, hint: Option<&str>) -> Result<
         let head = r.fill_buf().map_err(|e| e.to_string())?;
         let first = head.iter().copied().find(|c| !c.is_ascii_whitespace());
         kind = Some(match first {
+            Some(b'%') if head.starts_with(b"%PDF") => "pdf",
             Some(b'[') => "json",
             Some(b'{') => "jsonl",
             Some(b'<') => "html",
@@ -799,13 +801,15 @@ fn leaf(name: &str, stream: Stream, lim: &Limits, hint: Option<&str>) -> Result<
         "json" => Box::new(JsonDoc { r, name: nm, cap: lim.max_line_bytes, whole_cap: lim.whole_file_cap, started: false, in_array: false, queue: VecDeque::new(), index: 0, done: false }),
         "csv" | "tsv" => Box::new(CsvRecords { r, name: nm, cap: lim.max_line_bytes, delim: if kind == Some("tsv") { Some('\t') } else { lim.csv_delim }, header: None, line: 0, buf: Vec::new(), done: false }),
         "html" => Box::new(Whole { name: nm, stream: Some(Box::new(r)), cap: lim.whole_file_cap, kind: WholeKind::Html { markdown: lim.html_markdown }, queue: VecDeque::new(), loaded: false }),
-        "docx" => {
+        "docx" | "pdf" => {
+            let is_pdf = kind == Some("pdf");
             // A .docx is a ZIP package: spool it to a temporary file (bounded by the file limit), extract the text, read it as text.
-            let tmp = lim.tmp_dir.join(format!("mnx_spool_{}_{}.docx", std::process::id(), SPOOL.fetch_add(1, Ordering::Relaxed)));
+            let tmp = lim.tmp_dir.join(format!("mnx_spool_{}_{}.{}", std::process::id(), SPOOL.fetch_add(1, Ordering::Relaxed), if is_pdf { "pdf" } else { "docx" }));
             let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
             let res = io::copy(&mut r, &mut f);
             drop(f);
             let text = match res {
+                Ok(_) if is_pdf => crate::pdf::extract(&tmp, lim.whole_file_cap.max(64 << 20)).map(|t| t.text),
                 Ok(_) => crate::docx::extract(&tmp, lim.whole_file_cap),
                 Err(e) => Err(format!("could not read the document: {}", e)),
             };
@@ -1390,4 +1394,15 @@ mod resume_tests {
         let all: String = recs.iter().map(|r| r.get("text").unwrap().as_str().unwrap().to_string()).collect::<Vec<_>>().join("|");
         assert!(all.contains("# Sample document") && all.contains("First paragraph") && all.contains("- list item") && all.contains("cell A") && all.contains("بالعربية"), "{}", all);
     }
+
+    #[test]
+    fn pdf_is_read_as_text_records() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/sample.pdf");
+        let q = parse(&format!("{{\"path\":\"{}\",\"name\":\"sample.pdf\",\"text_split\":\"paragraphs\"}}", p.display())).unwrap();
+        let o = op_open(&q).unwrap();
+        let recs = drain(o.get("handle").unwrap().as_f64().unwrap());
+        let all: String = recs.iter().map(|r| r.get("text").unwrap().as_str().unwrap().to_string()).collect::<Vec<_>>().join("|");
+        assert!(all.contains("MNX DataForge test document") && all.contains("Page two content"), "{}", all);
+    }
 }
+

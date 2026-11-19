@@ -1,0 +1,11 @@
+PHASE 8 - 1.0.11
+- core/src/pdf.rs: PDF text extraction in Rust (object scan, object streams, Flate/ASCIIHex/ASCII85, PNG predictors,
+  page tree order, ToUnicode CMaps, WinAnsi/Differences, Form XObjects, paragraph rebuild, de-hyphenation).
+  Wired into reader.rs as "pdf" (extension or %PDF sniff). Tests: sample.pdf (made with reportlab), 89 Rust tests pass.
+  Limits: no OCR (scanned PDFs report a clear error), encrypted PDFs rejected, LZW/JPX unsupported,
+  Arabic/RTL text may come out reversed or in presentation forms, fonts without ToUnicode are skipped (warning).
+- Import: identical "no role labels found" errors are collapsed (first 3 kept); after 50 with 0 imports the job stops
+  with a clear message (plain text belongs in a Text dataset). Fixes the aclImdb 100007-rejects flood.
+- UI: header has a gradient scrim so scrolled content fades under the fixed icons; new back arrow with a shaft.
+- Not done yet: XLSX import, message attachments (file inside an assistant answer). Planned next.
+- Kotlin changes are compiled only in CI.

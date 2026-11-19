@@ -105,3 +105,5 @@ LICENSE
   owner. See LICENSE.txt.
 
 (c) 2026 Monsif. All rights reserved.
+
+PDF: text is extracted from PDF files (no OCR; scanned or encrypted PDFs are reported, not imported).

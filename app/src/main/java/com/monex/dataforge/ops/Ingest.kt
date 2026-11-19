@@ -63,8 +63,12 @@ fun importPath(
     val errors = ArrayList<String>()
     val resuming = job.consumed > 0
     val skip: Set<Long>? = if (job.incremental) repo.recordFingerprints(ds.id, sourceLabel) else null
+    var noRole = 0
     fun err(s: String) {
         rejected++; errorsTotal++
+        val plain = s.contains("no role labels found")
+        if (plain) noRole++
+        if (plain && noRole > 3) return // the same message hundreds of thousands of times is noise
         if (errors.size < MAX_ERRORS_KEPT) errors.add(s)
         if (errorsTotal <= 200) Logger.w("import", "$sourceLabel: $s")
     }
@@ -83,6 +87,8 @@ fun importPath(
             for (i in 0 until es.length()) { val e = es.getJSONObject(i); err("${e.getString("where")}: ${e.getString("message")}") }
             val dropped = b.optInt("errors_dropped", 0)
             if (dropped > 0) { rejected += dropped; errorsTotal += dropped }
+            if (noRole >= 50 && imported == job.imported)
+                throw IllegalStateException("These files are plain text with no \"User:/Assistant:\" labels, so they do not fit a conversation dataset. Create a Text dataset and import them there. / ملفات نص عادي بدون وسوم User/Assistant، ما كتناسبش dataset ديال الحوار. أنشئ dataset من نوع Text واستورد فيه.")
             val objs = ArrayList<JSONObject>(recs.length())
             val where = ArrayList<String>(recs.length())
             for (i in 0 until recs.length()) {
