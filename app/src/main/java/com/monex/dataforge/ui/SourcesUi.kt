@@ -73,8 +73,8 @@ fun SourcesScreen(st: AppState, datasetId: String) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Glass(Modifier.fillMaxWidth(), strength = 0.55f) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    T(tr("Downloads and licensed sources", "التنزيل والمصادر المرخصة"), 16.sp, FontWeight.SemiBold)
-                    T(tr("A source is accepted only after the License Gate. Files are downloaded in resumable parallel chunks, verified with SHA-256, read as a stream, and each version is recorded. \"Update\" fetches only what changed. Use \"In background\" to keep downloading and importing with the app closed (a notification with Stop is shown); if Android stops the work or the network drops, it continues from the saved chunks.",
+                    T(tr("Downloads and sources", "التنزيل والمصادر"), 16.sp, FontWeight.SemiBold)
+                    T(tr("Files are downloaded in resumable parallel chunks, verified with SHA-256, read as a stream, and each version is recorded. \"Update\" fetches only what changed. Use \"In background\" to keep downloading and importing with the app closed (a notification with Stop is shown); if Android stops the work or the network drops, it continues from the saved chunks.",
                         "لا يقبل أي مصدر إلا بعد بوابة الترخيص. تنزل الملفات بأجزاء متوازية قابلة للاستئناف، وتتحقق بـ SHA-256، وتقرأ تدفقيا، ويسجل كل إصدار. \"تحديث\" يجلب ما تغير فقط. استعمل \"في الخلفية\" لمتابعة التنزيل والاستيراد والتطبيق مغلق (يظهر إشعار فيه إيقاف)؛ إذا توقف العمل أو انقطعت الشبكة يكمل من الأجزاء المحفوظة."), 12.sp, color = p.textDim)
                     T(tr("Supported: JSONL, JSON, CSV, TSV, TXT, MD, HTML pages, Parquet, DOCX, XLSX (first sheet), PDF (text only, no OCR), EPUB, ODT/ODP/ODS, PPTX, RTF, Jupyter notebooks, SRT/VTT subtitles, and ZIP / TAR / gzip / Zstandard of those.", "المدعوم: JSONL وJSON وCSV وTSV وTXT وMD وصفحات HTML وParquet وDOCX وXLSX (الورقة الأولى) وPDF (نص فقط، بلا OCR) وEPUB وODF وPPTX وRTF وملفات Jupyter وترجمات SRT/VTT وأرشيفات ZIP وTAR وgzip وZstandard منها."), 12.sp, color = p.textDim)
                 }
@@ -95,7 +95,6 @@ fun SourcesScreen(st: AppState, datasetId: String) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             T(s.name, 16.sp, FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f))
                             Badge(s.kind.uppercase(), p.accent)
-                            Badge(if (s.licenseStatus == GATE_ALLOW) s.license else s.license + " · " + tr("reviewed", "مراجَع"), if (s.licenseStatus == GATE_ALLOW) p.ok else p.warn)
                         }
                         T(s.url, 12.sp, color = p.textDim, maxLines = 2, mono = true)
                         val bits = ArrayList<String>()
@@ -103,7 +102,6 @@ fun SourcesScreen(st: AppState, datasetId: String) {
                         if (!s.sha256.isNullOrEmpty()) bits.add("sha256 " + s.sha256.take(12) + "…")
                         bits.add(if (s.lastImport > 0) tr("last import ", "آخر استيراد ") + fmtTime(s.lastImport) else tr("never imported", "لم يستورد بعد"))
                         T(bits.joinToString("  ·  "), 12.sp, color = p.textDim)
-                        if (s.licenseNote.isNotBlank()) T(s.licenseNote, 12.sp, color = p.textDim)
                         ChipRow {
                             GButton(if (s.lastImport > 0) tr("Update", "تحديث") else tr("Fetch", "جلب"), { start(s, false) }, icon = Ic.BOLT, accent = true, enabled = !d.locked)
                             if (!(s.kind == "api" && s.config.optString("header_name").isNotBlank())) GButton(tr("In background", "في الخلفية"), { background(s) }, enabled = !d.locked)
@@ -175,12 +173,8 @@ private fun AddSourceModal(st: AppState, ds: Dataset, onDismiss: () -> Unit) {
     var headerName by remember { mutableStateOf("") }
     var headerPrefix by remember { mutableStateOf("") }
 
-    val gate: Gate? = remember(license, hint, attested, nc, sa) {
-        if (license.isBlank()) null else try { licenseGate(license, hint.split(",").map { it.trim() }.filter { it.isNotEmpty() }, attested, nc, sa) } catch (e: Exception) { null }
-    }
     val problem = if (url.isBlank()) null else urlProblem(url, allowHttp)
-    val gateOk = gate != null && (gate.status == "allow" || (gate.status == "review" && ack && ackNote.trim().length >= 5))
-    val canAdd = url.isNotBlank() && problem == null && gateOk
+    val canAdd = url.isNotBlank() && problem == null
 
     Modal(onDismiss) {
         T(tr("Add a source", "إضافة مصدر"), 18.sp, FontWeight.Bold)
@@ -191,30 +185,6 @@ private fun AddSourceModal(st: AppState, ds: Dataset, onDismiss: () -> Unit) {
         Field(url, { url = it }, Modifier.fillMaxWidth(), hint = "https://…", singleLine = true, mono = true, keyboard = KeyboardOptions(keyboardType = KeyboardType.Uri))
         problem?.let { T(it, 12.sp, color = p.danger) }
         Field(name, { name = it }, Modifier.fillMaxWidth(), hint = tr("Name (shown as the record source)", "الاسم (يظهر كمصدر للسجل)"), singleLine = true)
-
-        SectionTitle(tr("License Gate", "بوابة الترخيص"))
-        T(tr("Being reachable on the web does not mean you may copy it or train on it. Enter the license the owner published.", "كون المحتوى مفتوحا على الإنترنت لا يعني أنه مسموح نسخه أو التدريب عليه. أدخل الترخيص الذي نشره المالك."), 12.sp, color = p.textDim)
-        Field(license, { license = it }, Modifier.fillMaxWidth(), hint = tr("License (e.g. CC0-1.0, CC-BY-4.0, MIT, Apache-2.0)", "الترخيص (مثل CC0-1.0 أو CC-BY-4.0 أو MIT)"), singleLine = true, mono = true)
-        ChipRow { listOf("CC0-1.0", "CC-BY-4.0", "CC-BY-SA-4.0", "MIT", "Apache-2.0", "ODC-By", "public domain", "own data").forEach { c -> Chip(c, license == c) { license = c } } }
-        Field(hint, { hint = it }, Modifier.fillMaxWidth(), hint = tr("Other license names or URLs found on the site (optional, comma separated)", "أسماء أو روابط تراخيص أخرى على الموقع (اختياري)"), singleLine = true, mono = true)
-        Toggle(attested, { attested = it }, tr("I own this data or have the owner's written permission", "أملك هذه البيانات أو لدي إذن كتابي من المالك"))
-        Toggle(nc, { nc = it }, tr("My use is non-commercial research only", "استعمالي للبحث غير التجاري فقط"))
-        Toggle(sa, { sa = it }, tr("I accept share-alike terms", "أقبل شروط المشاركة بالمثل"))
-        if (license.isNotBlank() && gate == null) T(tr("License check failed.", "فشل فحص الترخيص."), 12.sp, color = p.danger)
-        gate?.let { g ->
-            val color = when (g.status) { "allow" -> p.ok; "review" -> p.warn; else -> p.danger }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Badge(g.id, color)
-                Badge(when (g.status) { "allow" -> tr("ALLOWED", "مسموح"); "review" -> tr("NEEDS YOUR DECISION", "يحتاج قرارك"); else -> tr("BLOCKED", "محظور") }, color)
-            }
-            if (g.reasons.isNotEmpty()) T(g.reasons.joinToString("\n") { "• $it" }, 12.sp, color = p.textDim)
-            if (g.attribution) T(tr("Attribution is required: source and license are saved with every record.", "الإسناد مطلوب: يحفظ المصدر والترخيص مع كل سجل."), 12.sp, color = p.textDim)
-            if (g.status == "review") {
-                Toggle(ack, { ack = it }, tr("I have read the license and accept responsibility for this use", "قرأت الترخيص وأتحمل مسؤولية هذا الاستعمال"))
-                Field(ackNote, { ackNote = it }, Modifier.fillMaxWidth(), hint = tr("Why this use is acceptable (saved with the source)", "لماذا هذا الاستعمال مقبول (يحفظ مع المصدر)"), singleLine = true)
-            }
-            if (g.status == "deny") T(tr("This source cannot be added. Without a clear license that allows it, do not use the content for training.", "لا يمكن إضافة هذا المصدر. بدون ترخيص واضح يسمح بذلك لا تستعمل المحتوى للتدريب."), 12.sp, color = p.danger)
-        }
 
         if (kind == "api") {
             SectionTitle(tr("API shape", "شكل الواجهة"))
@@ -250,18 +220,16 @@ private fun AddSourceModal(st: AppState, ds: Dataset, onDismiss: () -> Unit) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             GButton(tr("Cancel", "إلغاء"), onDismiss, Modifier.weight(1f))
             GButton(tr("Add source", "إضافة المصدر"), {
-                val g = gate!!
                 val cfg = JSONObject().put("parallel", parallel.toIntOrNull() ?: 3).put("min_interval_ms", interval.toLongOrNull() ?: 0).put("max_gb", maxGb.toLongOrNull() ?: 0)
                 if (kind == "api") {
                     cfg.put("records_path", recordsPath.trim()).put("page_param", pageParam.trim()).put("page_size_param", sizeParam.trim())
                         .put("page_size", pageSize.toIntOrNull() ?: 100).put("cursor_path", cursorPath.trim()).put("cursor_param", cursorParam.trim())
                         .put("max_pages", maxPages.toIntOrNull() ?: 50).put("header_name", headerName.trim()).put("header_prefix", headerPrefix)
                 }
-                val status = if (g.status == "allow") GATE_ALLOW else GATE_REVIEW_ACK
-                val note = (if (g.status == "review") "Reviewed by user: ${ackNote.trim()} (" + g.reasons.joinToString("; ") + ")" else "") +
-                    (if (attested) " Owner/permission attested." else "")
+                val status = GATE_ALLOW
+                val note = ""
                 val nm = name.trim().ifEmpty { url.trim().substringAfter("://").substringBefore('/').ifEmpty { "source" } }
-                st.work(tr("Adding source", "إضافة مصدر"), { st.repo.addSource(ds.id, kind, url.trim(), nm, g.id, status, note.trim(), expected.trim().lowercase().ifEmpty { null }, cfg) }) { onDismiss() }
+                st.work(tr("Adding source", "إضافة مصدر"), { st.repo.addSource(ds.id, kind, url.trim(), nm, "unknown", status, note, expected.trim().lowercase().ifEmpty { null }, cfg) }) { onDismiss() }
             }, Modifier.weight(1f), accent = true, enabled = canAdd)
         }
     }

@@ -43,3 +43,10 @@ PHASE 8 - 1.0.11
   XLS (old binary), DOC and PPT (binary) are NOT supported.
 - UI: the page title folds away while scrolling down (only the floating glass icons stay) and returns when scrolling up.
 - Kotlin compiled only in CI.
+
+1.0.15 - license controls removed (user request: no license checks on imports)
+- AddSourceModal: License Gate section removed; a source needs only a URL. Stored as license "unknown", status allow.
+- fetchSource no longer checks the gate status. Source rows no longer show license badge/note.
+- Transfer tab: license field removed from Import; Provenance card no longer lists unknown licenses; validation rule D002 removed.
+- Kept (harmless, internal): the Rust license_check op and the per-record license field (still editable in the record editor).
+  robots.txt checking for downloads is unchanged.

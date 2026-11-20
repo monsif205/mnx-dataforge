@@ -89,7 +89,6 @@ fun fetchSource(
     ctx: Context, repo: Repo, ds: Dataset, src: Source, apiKey: String?, forceFull: Boolean,
     progress: (String) -> Unit, cancelled: () -> Boolean
 ): FetchOutcome {
-    if (src.licenseStatus != GATE_ALLOW && src.licenseStatus != GATE_REVIEW_ACK) throw IllegalStateException("This source has not passed the License Gate.")
     if (repo.jobs(ds.id).any { it.sourceId == src.id }) throw IllegalStateException("This source has an unfinished import. Resume or discard it first (see \"Unfinished imports\").")
     val cfg = src.config
     val opt = DlOptions(

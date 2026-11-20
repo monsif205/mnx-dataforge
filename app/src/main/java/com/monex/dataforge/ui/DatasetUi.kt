@@ -464,7 +464,7 @@ fun TransferTab(st: AppState, ds: Dataset) {
 
     val importPick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) st.work(tr("Importing", "استيراد"), {
-            importFile(st.ctx, uri, st.repo, ds, license.ifBlank { "unknown" }, st::progress) { st.cancelFlag.get() }
+            importFile(st.ctx, uri, st.repo, ds, "", st::progress) { st.cancelFlag.get() }
         }) { r ->
             report = tr("Imported ${r.imported}, rejected ${r.rejected}${if (r.cancelled) " (cancelled)" else ""}. Format: ${r.format}.${if (r.cancelled) " Paused: resume it from the list below." else ""}", "تم استيراد ${r.imported}، ورُفض ${r.rejected}${if (r.cancelled) " (ألغي)" else ""}. الصيغة: ${r.format}.") +
                 (if (r.errorsTotal > r.errors.size) "\n" + tr("${r.errorsTotal} problems in total (first ${r.errors.size} shown; all are in Settings → Logs).", "${r.errorsTotal} مشكلة في المجموع (تعرض أول ${r.errors.size}؛ كلها في الإعدادات ← السجلات).") else "") +
@@ -487,7 +487,6 @@ fun TransferTab(st: AppState, ds: Dataset) {
                 T(tr("Import", "استيراد"), 16.sp, FontWeight.SemiBold)
                 T(tr("Every format is streamed by the Rust engine, so a multi-GB file is never loaded into memory: JSONL, JSON, CSV, TSV, TXT, Markdown, HTML, Parquet, and ZIP / TAR / gzip / Zstandard archives of those. A damaged line, row group or archive entry is logged and skipped; the rest is still imported. ShareGPT, Alpaca and prompt/completion records are converted to messages and marked \"transformed\". The original file is never modified.",
                     "يقرأ محرك Rust كل الصيغ تدفقيا فلا يحمل ملف بحجم عدة غيغابايت في الذاكرة: JSONL وJSON وCSV وTSV وTXT وMarkdown وHTML وParquet وأرشيفات ZIP وTAR وgzip وZstandard منها. السطر أو مجموعة الصفوف أو عنصر الأرشيف التالف يسجل ويتخطى ويستورد الباقي. تحوّل سجلات ShareGPT وAlpaca وprompt/completion إلى رسائل وتوسم \"transformed\". لا يُعدّل الملف الأصلي."), 12.sp, color = p.textDim)
-                Field(license, { license = it }, Modifier.fillMaxWidth(), hint = tr("License of this data (kept per record)", "ترخيص هذه البيانات (يحفظ لكل سجل)"), singleLine = true)
                 GButton(tr("Choose file…", "اختيار ملف…"), { importPick.launch(arrayOf("*/*")) }, icon = Ic.IMPORT, accent = true, enabled = !ds.locked)
                 GButton(tr("Sources, URLs and APIs…", "المصادر والروابط والواجهات…"), { st.push(Screen.SourcesS(ds.id)) }, icon = Ic.BACKUP)
                 GButton(tr("Dataset Intelligence…", "ذكاء المجموعة…"), { st.push(Screen.IntelS(ds.id)) }, icon = Ic.LAYERS)
@@ -608,7 +607,6 @@ fun InfoTab(st: AppState, ds: Dataset) {
         Glass(Modifier.fillMaxWidth(), strength = 0.55f) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 T(tr("Provenance", "المصدر"), 16.sp, FontWeight.SemiBold)
-                T(tr("Imported/transformed records with unknown license: ${prov.optInt("unknown_license")}", "سجلات مستوردة/محولة بترخيص غير معروف: ${prov.optInt("unknown_license")}"), 13.sp, color = if (prov.optInt("unknown_license") > 0) p.warn else p.ok)
                 T(tr("Imported/transformed records without a source: ${prov.optInt("missing_source")}", "سجلات مستوردة/محولة بلا مصدر: ${prov.optInt("missing_source")}"), 13.sp, color = if (prov.optInt("missing_source") > 0) p.warn else p.ok)
                 T(tr("Per-record origin, source, license and edit history are shown in each record's editor.", "مصدر كل سجل وترخيصه وتاريخ تعديله يظهر في محرر السجل."), 12.sp, color = p.textDim)
             }

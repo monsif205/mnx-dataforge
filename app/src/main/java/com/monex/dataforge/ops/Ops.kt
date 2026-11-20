@@ -279,11 +279,6 @@ fun validateDataset(repo: Repo, ds: Dataset, o: ValidateOpts, progress: (String)
             .put("message", "label imbalance: largest class has more than 10x the records of the smallest (heuristic)"))
     }
     val prov = repo.provenanceSummary(ds.id)
-    if (prov.getInt("unknown_license") > 0) {
-        count("D002", "warning")
-        addFinding(JSONObject().put("record", "*").put("rule", "D002").put("severity", "warning").put("deterministic", true)
-            .put("message", "${prov.getInt("unknown_license")} imported/transformed records have an unknown license"))
-    }
     if (prov.getInt("missing_source") > 0) {
         count("D003", "warning")
         addFinding(JSONObject().put("record", "*").put("rule", "D003").put("severity", "warning").put("deterministic", true)
@@ -292,7 +287,6 @@ fun validateDataset(repo: Repo, ds: Dataset, o: ValidateOpts, progress: (String)
     ruleMeta["R004"] = JSONObject().put("id", "R004").put("deterministic", true).put("description", "exact duplicate (normalized text)")
     ruleMeta["R005"] = JSONObject().put("id", "R005").put("deterministic", false).put("description", "near duplicate (shingle similarity)")
     ruleMeta["D001"] = JSONObject().put("id", "D001").put("deterministic", false).put("description", "category balance")
-    ruleMeta["D002"] = JSONObject().put("id", "D002").put("deterministic", true).put("description", "license known for imported records")
     ruleMeta["D003"] = JSONObject().put("id", "D003").put("deterministic", true).put("description", "source known for imported records")
 
     val rulesArr = JSONArray()
