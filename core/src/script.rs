@@ -239,7 +239,7 @@ pub fn build(v: &Value) -> Result<Value, String> {
     ]))
 }
 
-fn count_labels(text: &str, mode_fields: &[String], conversation: bool, extra: &[String]) -> usize {
+pub(crate) fn count_labels(text: &str, mode_fields: &[String], conversation: bool, extra: &[String]) -> usize {
     text.lines()
         .filter(|l| {
             let by_colon = split_label(l).map(|(lab, _)| if conversation { canon_role(&lab, extra).is_some() } else { mode_fields.iter().any(|f| f.to_lowercase() == lab.to_lowercase()) }).unwrap_or(false);
@@ -312,6 +312,50 @@ pub fn text_records(v: &Value) -> Result<Value, String> {
         }
     };
     Ok(Value::obj(vec![("records", Value::Arr(records)), ("warnings", Value::Arr(warnings.into_iter().map(Value::str).collect()))]))
+}
+
+/// Splits a document into pieces of at most `max` characters, on paragraph boundaries (long paragraphs on whitespace).
+pub fn doc_chunks(text: &str, max: usize) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    let mut push_piece = |cur: &mut String, out: &mut Vec<String>| {
+        if !cur.trim().is_empty() {
+            out.push(cur.trim().to_string());
+        }
+        cur.clear();
+    };
+    for para in text.split("\n\n") {
+        let para = para.trim();
+        if para.is_empty() {
+            continue;
+        }
+        let mut rest = para;
+        while rest.chars().count() > max {
+            let mut cut = rest.char_indices().nth(max).map(|(i, _)| i).unwrap_or(rest.len());
+            if let Some(ws) = rest[..cut].rfind(char::is_whitespace) {
+                if ws > cut / 2 {
+                    cut = ws;
+                }
+            }
+            if !cur.is_empty() {
+                push_piece(&mut cur, &mut out);
+            }
+            out.push(rest[..cut].trim().to_string());
+            rest = rest[cut..].trim_start();
+        }
+        if rest.is_empty() {
+            continue;
+        }
+        if cur.chars().count() + rest.chars().count() + 2 > max {
+            push_piece(&mut cur, &mut out);
+        }
+        if !cur.is_empty() {
+            cur.push_str("\n\n");
+        }
+        cur.push_str(rest);
+    }
+    push_piece(&mut cur, &mut out);
+    out
 }
 
 /// op "to_script": records -> text (inverse of `build`).

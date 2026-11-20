@@ -609,6 +609,20 @@ impl Records for Whole {
             } else {
                 let text = String::from_utf8_lossy(&raw).to_string();
                 match &self.kind {
+                    WholeKind::Labelled { mode, fields, extra_roles } if mode == "conversation" && crate::script::count_labels(&text, fields, true, extra_roles) == 0 => {
+                        // A document without "User:/Assistant:" labels (PDF, DOCX, Markdown, notes): keep its text, in pieces,
+                        // as the first message of editable conversations instead of rejecting it.
+                        let parts = crate::script::doc_chunks(&text, 6000);
+                        let n = parts.len();
+                        for (i, p) in parts.into_iter().enumerate() {
+                            let msgs = Value::Arr(vec![Value::obj(vec![("role", Value::str("user")), ("content", Value::str(p))])]);
+                            let meta = Value::obj(vec![("document", Value::str(self.name.clone())), ("part", Value::int(i as i64 + 1)), ("parts", Value::int(n as i64)), ("unlabeled", Value::Bool(true))]);
+                            self.queue.push_back(Value::obj(vec![("messages", msgs), ("metadata", meta)]));
+                        }
+                        if n == 0 {
+                            b.err(&self.name, "the document has no text");
+                        }
+                    }
                     WholeKind::Labelled { mode, fields, extra_roles } => {
                         let q = Value::obj(vec![
                             ("text", Value::str(text)),
@@ -1454,6 +1468,28 @@ mod resume_tests {
         let recs = drain(o.get("handle").unwrap().as_f64().unwrap());
         assert_eq!(recs.len(), 2);
         assert!(recs[0].to_json().contains("\"name\":\"Ali\""), "{}", recs[0].to_json());
+    }
+
+    #[test]
+    fn unlabeled_document_becomes_editable_conversations() {
+        let lim = Limits { text_mode: "conversation".into(), ..Default::default() };
+        let text = format!("Intro paragraph.\n\n{}\n\nEnd.", "word ".repeat(2500));
+        let chunks = crate::script::doc_chunks(&text, 6000);
+        assert!(chunks.len() >= 2 && chunks.iter().all(|c| c.chars().count() <= 6000));
+        let _ = lim;
+    }
+
+    #[test]
+    fn pdf_and_markdown_into_conversation_dataset() {
+        for (f, nm) in [("sample.pdf", "sample.pdf"), ("sample.docx", "sample.docx")] {
+            let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata").join(f);
+            let q = parse(&format!("{{\"path\":\"{}\",\"name\":\"{}\",\"text_mode\":\"conversation\"}}", p.display(), nm)).unwrap();
+            let o = op_open(&q).unwrap();
+            let recs = drain(o.get("handle").unwrap().as_f64().unwrap());
+            assert!(!recs.is_empty(), "{}", f);
+            let j = recs[0].to_json();
+            assert!(j.contains("\"messages\"") && j.contains("\"unlabeled\":true"), "{} {}", f, j);
+        }
     }
 }
 

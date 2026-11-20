@@ -50,3 +50,10 @@ PHASE 8 - 1.0.11
 - Transfer tab: license field removed from Import; Provenance card no longer lists unknown licenses; validation rule D002 removed.
 - Kept (harmless, internal): the Rust license_check op and the per-record license field (still editable in the record editor).
   robots.txt checking for downloads is unchanged.
+
+1.0.16 - documents into conversation datasets
+- Problem (user log): PDF/DOCX/MD files imported into a conversation dataset were all rejected: "no role labels found".
+- Fix (core/src/reader.rs + script.rs doc_chunks): a document with no User:/Assistant: labels is no longer rejected.
+  Its text is cut into pieces of at most 6000 chars on paragraph boundaries; each piece becomes an editable conversation with one
+  user message and metadata {document, part, parts, unlabeled:true}. Labelled files behave as before.
+- Tests: pdf+docx into conversation mode (103 Rust tests pass).
