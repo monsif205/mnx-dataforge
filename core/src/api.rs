@@ -105,6 +105,7 @@ fn dispatch(op: &str, v: &Value) -> Result<Value, String> {
         "to_script" => crate::script::render(v),
         "tokens" => crate::script::tokens(v),
         "dedup" => run_dedup(v),
+        "cleanse" => crate::cleanse::op(v),
         "export" => run_export(v),
         _ => Err(format!("unknown operation '{}'", op)),
     }

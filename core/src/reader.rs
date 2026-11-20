@@ -759,6 +759,13 @@ fn supported_ext(name: &str) -> Option<&'static str> {
         "docx" => "docx",
         "pdf" => "pdf",
         "xlsx" => "xlsx",
+        "epub" => "epub",
+        "odt" | "odp" | "ods" | "fodt" => "odt",
+        "pptx" => "pptx",
+        "rtf" => "rtf",
+        "ipynb" => "ipynb",
+        "srt" => "srt",
+        "vtt" => "vtt",
         _ => return None,
     })
 }
@@ -802,16 +809,18 @@ fn leaf(name: &str, stream: Stream, lim: &Limits, hint: Option<&str>) -> Result<
         "json" => Box::new(JsonDoc { r, name: nm, cap: lim.max_line_bytes, whole_cap: lim.whole_file_cap, started: false, in_array: false, queue: VecDeque::new(), index: 0, done: false }),
         "csv" | "tsv" => Box::new(CsvRecords { r, name: nm, cap: lim.max_line_bytes, delim: if kind == Some("tsv") { Some('\t') } else { lim.csv_delim }, header: None, line: 0, buf: Vec::new(), done: false }),
         "html" => Box::new(Whole { name: nm, stream: Some(Box::new(r)), cap: lim.whole_file_cap, kind: WholeKind::Html { markdown: lim.html_markdown }, queue: VecDeque::new(), loaded: false }),
-        "docx" | "pdf" => {
+        "docx" | "pdf" | "epub" | "odt" | "pptx" | "rtf" | "ipynb" | "srt" | "vtt" => {
             let is_pdf = kind == Some("pdf");
+            let ext = kind.unwrap_or("docx");
             // A .docx is a ZIP package: spool it to a temporary file (bounded by the file limit), extract the text, read it as text.
-            let tmp = lim.tmp_dir.join(format!("mnx_spool_{}_{}.{}", std::process::id(), SPOOL.fetch_add(1, Ordering::Relaxed), if is_pdf { "pdf" } else { "docx" }));
+            let tmp = lim.tmp_dir.join(format!("mnx_spool_{}_{}.{}", std::process::id(), SPOOL.fetch_add(1, Ordering::Relaxed), ext));
             let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
             let res = io::copy(&mut r, &mut f);
             drop(f);
             let text = match res {
                 Ok(_) if is_pdf => crate::pdf::extract(&tmp, lim.whole_file_cap.max(64 << 20)).map(|t| t.text),
-                Ok(_) => crate::docx::extract(&tmp, lim.whole_file_cap),
+                Ok(_) if ext == "docx" => crate::docx::extract(&tmp, lim.whole_file_cap),
+                Ok(_) => crate::formats::extract(ext, &tmp, lim.whole_file_cap.max(64 << 20)),
                 Err(e) => Err(format!("could not read the document: {}", e)),
             };
             let _ = std::fs::remove_file(&tmp);
@@ -930,7 +939,18 @@ pub fn open_source(path: &Path, name: &str, lim: &Limits) -> Result<Opened, Stri
     let counted = |f: std::fs::File| -> Stream { Box::new(Counting { inner: BufReader::with_capacity(256 * 1024, f), count: count.clone() }) };
     let is_docx = kind == Kind::Zip && name.to_lowercase().ends_with(".docx");
     let is_xlsx = kind == Kind::Zip && name.to_lowercase().ends_with(".xlsx");
+    let zip_doc: Option<&str> = if kind == Kind::Zip {
+        let n = name.to_lowercase();
+        [("epub", "epub"), ("odt", "odt"), ("odp", "odt"), ("ods", "odt"), ("pptx", "pptx")].iter().find(|(e, _)| n.ends_with(&format!(".{}", e))).map(|(_, k)| *k)
+    } else {
+        None
+    };
     let (src, format): (Box<dyn Records>, String) = match kind {
+        Kind::Zip if zip_doc.is_some() => {
+            let k = zip_doc.unwrap();
+            let r = leaf(name, counted(f), lim, Some(k))?;
+            (r, k.to_string())
+        }
         Kind::Zip if is_xlsx => {
             let r = leaf(name, counted(f), lim, Some("xlsx"))?;
             (r, "xlsx".to_string())

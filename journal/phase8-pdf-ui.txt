@@ -31,3 +31,15 @@ PHASE 8 - 1.0.11
   a card with live status, Stop, and the last background report. Notification permission asked on first use.
 - Not done: auto-start after reboot, WorkManager scheduling (periodic update checks), Wi-Fi-only / charging-only conditions.
 - Kotlin compiled only in CI; never run on a device.
+
+1.0.14 - cleanup, more formats, header
+- core/src/cleanse.rs (op "cleanse"): PII masking (email, phone, IPv4, URL), boilerplate lines, repeated lines, record filters
+  (min chars, quality, repeated-word share, language). Per record: keep / change / drop with reasons. 3 tests.
+- ops/Clean.kt + ui/CleanUi.kt: Cleanup card in the Transfer tab. Preview (nothing changes) or Apply (snapshot "before cleanup" first;
+  changed records keep their history, dropped records keep their final content).
+- core/src/formats.rs: EPUB (spine order), OpenDocument odt/odp/ods, PPTX (per slide), RTF, Jupyter .ipynb, SRT/VTT subtitles.
+  Wired into reader.rs by extension (ZIP containers detected by magic + extension). Real-file tests (LibreOffice odt/rtf, python-pptx).
+  100 Rust tests pass. Limits: text only; RTF encodings other than cp1252/unicode escapes are not mapped; ODS/ODP are flattened to text;
+  XLS (old binary), DOC and PPT (binary) are NOT supported.
+- UI: the page title folds away while scrolling down (only the floating glass icons stay) and returns when scrolling up.
+- Kotlin compiled only in CI.

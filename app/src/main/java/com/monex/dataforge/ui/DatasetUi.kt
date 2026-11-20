@@ -530,6 +530,7 @@ fun TransferTab(st: AppState, ds: Dataset) {
                 GButton(tr("Export…", "تصدير…"), { exportPick.launch("${ds.name.replace(Regex("[^\\p{L}\\p{N}_-]+"), "_")}.$container") }, icon = Ic.EXPORT, accent = true)
             }
         }
+        CleanCard(st, ds) { report = it }
         report?.let { Glass(Modifier.fillMaxWidth(), strength = 0.7f) { Column(Modifier.padding(14.dp)) { T(it, 13.sp, mono = true) } } }
         Box(Modifier.padding(bottom = 120.dp)) {}
     }

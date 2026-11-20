@@ -28,6 +28,8 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
@@ -65,9 +67,19 @@ fun <T> ioState(initial: T, vararg keys: Any?, block: () -> T): State<T> =
 @Composable
 fun Page(title: String, onBack: (() -> Unit)? = null, actions: @Composable RowScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
     val p = LocalPalette.current
-    BackdropHost(Modifier.fillMaxSize(), background = p.bgTop, content = {
+    // Scrolling down folds the title away so only the floating icons remain; scrolling up brings it back.
+    val fold = androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    val conn = androidx.compose.runtime.remember {
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+            override fun onPreScroll(available: androidx.compose.ui.geometry.Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): androidx.compose.ui.geometry.Offset {
+                fold.floatValue = (fold.floatValue - available.y / 220f).coerceIn(0f, 1f)
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+        }
+    }
+    BackdropHost(Modifier.fillMaxSize().nestedScroll(conn), background = p.bgTop, content = {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            Box(Modifier.fillMaxWidth().height(58.dp).padding(start = if (onBack != null) 66.dp else 18.dp, end = 18.dp), contentAlignment = Alignment.CenterStart) {
+            Box(Modifier.fillMaxWidth().height((58f - 16f * fold.floatValue).dp).graphicsLayer { alpha = 1f - fold.floatValue }.padding(start = if (onBack != null) 66.dp else 18.dp, end = 18.dp), contentAlignment = Alignment.CenterStart) {
                 T(title, if (onBack == null) 30.sp else 20.sp, FontWeight.Bold, maxLines = 1)
             }
             content()
